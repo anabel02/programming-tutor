@@ -25,7 +25,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         answer = ai_response.get("answer", "Sorry, I couldn't find an answer.")
         await update.message.reply_text(answer, parse_mode="Markdown")
     except Exception as e:
-        await update.message.reply_text(f"Error: {e}")
+        logger.error(e)
 
 
 async def start(update: Update, context: CallbackContext):
