@@ -1,8 +1,8 @@
 import os
-from pdf_loader import PDFCorpusLoader
-from document_vector_store import ChromaVectorDatabase
+from rag.pdf_loader import PDFCorpusLoader
+from rag.document_vector_store import ChromaVectorDatabase
 from langchain_google_genai import ChatGoogleGenerativeAI
-from ai_tutor import AITutor
+from rag.ai_tutor import AITutor
 from dotenv import load_dotenv
 
 
@@ -30,6 +30,5 @@ retriever = vector_db.vector_db.as_retriever(search_type="similarity", search_kw
 ai_tutor = AITutor(llm, retriever)
 
 question = "array bidimensional"
-
 answer = ai_tutor.answer_question(question)
 print(answer['answer'])

@@ -2,8 +2,8 @@ import logging
 from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes
 from sqlalchemy.orm import Session
-from database import SessionLocal
-from models import User
+from telegram_bot.database import SessionLocal, User
+from rag.main import ai_tutor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -11,6 +11,12 @@ logger = logging.getLogger(__name__)
 
 # Telegram Bot Token
 TELEGRAM_BOT_TOKEN = "7556696845:AAFh6s6NBiS-WNrhk67Kra3EWJzqTWy8sK8"
+
+
+async def test(update: Update, context: CallbackContext):
+    question = "array bidimensional"
+    answer = ai_tutor.answer_question(question)
+    await update.message.reply_text(answer['answer'])
 
 
 async def start(update: Update, context: CallbackContext):
@@ -61,11 +67,8 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("test", test))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
     app.run_polling()
-
-
-if __name__ == '__main__':
-    main()

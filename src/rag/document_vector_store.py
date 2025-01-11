@@ -3,7 +3,7 @@ from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.schema import Document
 from dotenv import load_dotenv
-from pdf_loader import PDFCorpusLoader
+from rag.pdf_loader import PDFCorpusLoader
 
 # Load environment variables
 load_dotenv()
@@ -61,7 +61,6 @@ class ChromaVectorDatabase:
 
         # Split the documents into smaller batches
         batches = [documents[i:i + batch_size] for i in range(0, len(documents), batch_size)]
-        print(len(batches))
 
         for i, batch in enumerate(batches):
             try:
