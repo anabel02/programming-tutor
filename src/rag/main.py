@@ -16,7 +16,7 @@ folder_path = os.path.abspath("corpus")  # Convert to absolute path
 pdf_loader = PDFCorpusLoader(folder_path, chunk_size=5000)
 
 pdf_corpus = pdf_loader.load_corpus()
-print(f"Loaded {len(pdf_corpus)} PDFs.")
+print(f"Loaded {len(pdf_corpus)} documents.")
 
 # Initialize the vector database
 persist_dir = "chroma_db"
