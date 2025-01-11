@@ -2,15 +2,11 @@ import os
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.schema import Document
-from dotenv import load_dotenv
-from rag.pdf_loader import PDFCorpusLoader
-
-# Load environment variables
-load_dotenv()
+from rag.corpus_loader import PDFCorpusLoader
 
 
 class ChromaVectorDatabase:
-    def __init__(self, persist_directory: str, embedding_model="models/text-embedding-004"):
+    def __init__(self, persist_directory: str, google_api_key: str, embedding_model="models/text-embedding-004"):
         """
         Initializes the Chroma vector database with GoogleGenerativeAIEmbeddings.
 
@@ -19,11 +15,11 @@ class ChromaVectorDatabase:
             embedding_model (str): The embedding model to use. Default is "models/embedding-001".
         """
         self.persist_directory = persist_directory
-        self.embeddings = self._initialize_embeddings(embedding_model)
+        self.embeddings = self._initialize_embeddings(embedding_model, google_api_key)
         self.vector_db = None
         self._initialize_vector_store()
 
-    def _initialize_embeddings(self, model: str):
+    def _initialize_embeddings(self, model: str, google_api_key: str):
         """
         Initializes the Google Generative AI embeddings.
 
@@ -33,10 +29,7 @@ class ChromaVectorDatabase:
         Returns:
             GoogleGenerativeAIEmbeddings: Initialized embeddings.
         """
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY is not set. Please set it as an environment variable.")
-        return GoogleGenerativeAIEmbeddings(model=model, google_api_key=api_key)
+        return GoogleGenerativeAIEmbeddings(model=model, google_api_key=google_api_key)
 
     def _initialize_vector_store(self):
         """Initializes the Chroma vector store."""
