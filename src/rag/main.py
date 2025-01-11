@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")
-llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0, api_key=api_key)
+llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.2, api_key=api_key)
 
 folder_path = os.path.abspath("corpus")  # Convert to absolute path
 pdf_loader = PDFCorpusLoader(folder_path, chunk_size=5000)

@@ -1,22 +1,31 @@
 import logging
+import os
 from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes
 from sqlalchemy.orm import Session
 from telegram_bot.database import SessionLocal, User
 from rag.main import ai_tutor
+from dotenv import load_dotenv
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Telegram Bot Token
-TELEGRAM_BOT_TOKEN = "7556696845:AAFh6s6NBiS-WNrhk67Kra3EWJzqTWy8sK8"
+load_dotenv()
+
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 
-async def test(update: Update, context: CallbackContext):
-    question = "array bidimensional"
-    answer = ai_tutor.answer_question(question)
-    await update.message.reply_text(answer['answer'])
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_question = update.message.text
+    await update.message.reply_text("Thinking... 🤔")
+
+    try:
+        ai_response = ai_tutor.answer_question(user_question)
+        answer = ai_response.get("answer", "Sorry, I couldn't find an answer.")
+        await update.message.reply_text(answer, parse_mode="Markdown")
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}")
 
 
 async def start(update: Update, context: CallbackContext):
@@ -67,7 +76,7 @@ def main():
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
-    app.add_handler(CommandHandler("test", test))
+    app.add_handler(CommandHandler("ask", handle_message))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), echo))
     app.add_handler(MessageHandler(filters.COMMAND, unknown))
 
