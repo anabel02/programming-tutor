@@ -3,29 +3,17 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import ChatPromptTemplate
 
 
-class AITutor:
-    def __init__(self, llm, retriever):
-        # Define a system prompt
-        self.system_prompt = (
-            ''''
-You are an AI tutor specialized in C# programming, dedicated to providing clear, thorough, and step-by-step explanations. Your primary goal is to simplify complex concepts into easy-to-understand terms suitable for a non-technical audience, maintaining a warm and conversational tone. 
+class RAG:
+    def __init__(self, system_prompt: str, llm, retriever):
+        """
+        Base class for creating a Retrieval-Augmented Generation (RAG) chain.
 
-- Your responses must be based **exclusively** on the content from the provided material and its examples.  
-- If the question is not covered in the material, politely explain that the answer is not available in the provided document.  
-- Respond **in Spanish**, ensuring your explanation is clear and beginner-friendly.  
-
-At the end of each response:  
-1. Include a reference to the source (document name) and the relevant page numbers.  
-2. Use proper formatting for a Telegram message, ensuring any included code is written in a block like this:
-```csharp
-Console.WriteLine("Hello world");
-```
-
-Keep your answers concise, informative, and engaging, ensuring students feel supported in their learning journey. Do not add any information beyond what the material provides.  
-
----
-    {context}'''
-        )
+        Args:
+            system_prompt (str): The system prompt template.
+            llm: The language model to use.
+            retriever: The retriever to use for context retrieval.
+        """
+        self.system_prompt = system_prompt + '\n ------ \n{context}'
 
         # Set up the prompt for the QA chain
         self.prompt = ChatPromptTemplate.from_messages(
@@ -39,7 +27,47 @@ Keep your answers concise, informative, and engaging, ensuring students feel sup
         self.chain = create_stuff_documents_chain(llm, self.prompt)
         self.rag_chain = create_retrieval_chain(retriever, self.chain)
 
-    def answer_question(self, question):
-        # Using the RAG chain to get an answer
+    def answer_question(self, question: str):
+        """
+        Use the RAG chain to answer a question.
+
+        Args:
+            question (str): The question to answer.
+
+        Returns:
+            str: The response from the RAG chain.
+        """
         response = self.rag_chain.invoke({"input": question})
         return response
+
+
+class AITutor(RAG):
+    def __init__(self, llm, retriever):
+        """
+        Specialized AI tutor class for C# programming.
+
+        Args:
+            llm: The language model to use.
+            retriever: The retriever to use for context retrieval.
+        """
+        # Define the specific system prompt for the AI tutor
+        system_prompt = '''
+        You are an AI tutor specialized in C# programming, dedicated to providing clear, thorough, and step-by-step explanations.
+        Your primary goal is to simplify complex concepts into easy-to-understand terms, maintaining a warm and conversational tone.
+
+        - Your responses must be based **exclusively** on the content from the provided material and its examples.
+        - If the question is not covered in the material, politely explain that the answer is not available in the provided document.
+        - Respond **in Spanish**, ensuring your explanation is clear and beginner-friendly.
+
+        At the end of each response:
+        1. Include a reference to the source (document name) and the relevant page numbers.
+        2. Use proper formatting for a Telegram message, ensuring any included code is written in a block like this:
+
+        ```csharp
+        Console.WriteLine("Hello world");
+        ```
+
+        Keep your answers concise, informative, and engaging, ensuring students feel supported in their learning journey.
+        Do not add any information beyond what the material provides.
+        '''
+        super().__init__(system_prompt, llm, retriever)
