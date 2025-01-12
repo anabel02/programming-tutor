@@ -31,4 +31,3 @@ def populate_database(session: Session, data: dict):
 
     # Commit all changes
     session.commit()
-

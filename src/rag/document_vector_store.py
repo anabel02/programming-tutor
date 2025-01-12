@@ -2,7 +2,6 @@ import os
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain.schema import Document
-from rag.corpus_loader import PDFCorpusLoader
 
 
 class ChromaVectorDatabase:
@@ -96,32 +95,3 @@ class ChromaVectorDatabase:
         Deletes the entire collection in the vector store.
         """
         self.vector_db.delete_collection()
-
-
-# Example Usage
-if __name__ == "__main__":
-    folder_path = os.path.abspath("corpus")  # Convert to absolute path
-    pdf_loader = PDFCorpusLoader(folder_path, chunk_size=5000)
-
-    try:
-        pdf_corpus = pdf_loader.load_corpus()
-        print(f"Loaded {len(pdf_corpus)} PDFs.")
-
-        # Initialize the vector database
-        persist_dir = "chroma_db"
-        vector_db = ChromaVectorDatabase(persist_directory=persist_dir)
-
-        # Load the PDFs and add them to the vector store
-        vector_db.add_documents(pdf_corpus)
-
-        # Search for a query
-        search_query = "array bidimensional"
-        results = vector_db.search(search_query)
-
-        # Display search results
-        print("Search Results:")
-        for doc in results:
-            print(f"Content: {doc.page_content}\nMetadata: {doc.metadata}\n")
-
-    except ValueError as e:
-        print(e)
