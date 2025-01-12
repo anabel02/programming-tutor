@@ -3,8 +3,10 @@ import os
 from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes
 from sqlalchemy.orm import Session
-from telegram_bot.database import SessionLocal
-from telegram_bot.models import user_exercise, User, Exercise
+from database.database import SessionLocal
+from database.models import User, Exercise, Topic
+from database.crud import create_record, record_exists, first_or_default
+from database.queries import get_highest_completed_level, get_unattempted_exercises
 from dotenv import load_dotenv
 import random
 
@@ -52,17 +54,12 @@ class TelegramBot:
         first_name = query.from_user.first_name
         last_name = query.from_user.last_name
 
-        session: Session = SessionLocal()
         try:
-            user = session.query(User).filter(User.user_id == user_id).first()
-            if user is None:
-                user = User(user_id=user_id, chat_id=chat_id, first_name=first_name, last_name=last_name)
-                session.add(user)
-            session.commit()
+            with SessionLocal() as session:
+                if not record_exists(session, User, user_id=user_id):
+                    create_record(session, User, user_id=user_id, chat_id=chat_id, first_name=first_name, last_name=last_name)
         except Exception as e:
-            logger.error(f"Error setting language: {e}")
-        finally:
-            session.close()
+            logger.error(f"Error adding user: {e}")
 
         await update.message.reply_text(
             f"Hello, {first_name}! 👋 Welcome to the bot. "
@@ -89,43 +86,30 @@ class TelegramBot:
         # Extraer información del usuario
         user_id = update.effective_user.id
         session: Session = SessionLocal()
+        # Obtén el resto del mensaje después del comando
+        args = context.args  # Una lista de palabras separadas por espacios
+        topic_name = args[0]
 
-        # Obtener el nivel más avanzado completado por el usuario
-        completed_difficulties = session.execute(
-            user_exercise.select()
-            .where(user_exercise.c.user_id == user_id)
-        ).fetchall()
-
-        if completed_difficulties:
-            # Determinar el nivel más avanzado completado
-            completed_levels = [row.difficulty for row in completed_difficulties]
-            next_level = self.get_next_difficulty(max(completed_levels))
-
-            # Buscar ejercicios de arrays en el siguiente nivel
-            exercises = session.query(Exercise).filter(
-                Exercise.difficulty == next_level,
-                Exercise.topic.has('conditionals')
-            ).all()
-
-            if exercises:
-                # Elegir un ejercicio aleatoriamente
-                exercise = random.choice(exercises)
-                update.message.reply_text(
-                    f"Te recomiendo este ejercicio:\n\n*{exercise.title}*\n\n{exercise.description}",
-                    parse_mode="Markdown",
-                )
-            else:
-                await update.message.reply_text("No hay ejercicios disponibles para tu nivel. ¡Bien hecho!")
-        else:
-            await update.message.reply_text("Parece que aún no has completado ningún ejercicio. ¡Empieza con uno básico!")
-
-    # Función auxiliar para obtener el siguiente nivel de dificultad
-    def get_next_difficulty(self, current_level):
-        levels = ["Basic", "Intermediate", "Advanced"]
         try:
-            return levels[levels.index(current_level) + 1]
-        except IndexError:
-            return "Advanced"  # Ya está en el nivel máximo
+            with SessionLocal() as session:
+                topic = first_or_default(session=session, model=Topic, name=topic_name)
+                # handle null topic
+                level = get_highest_completed_level(session, user_id, topic.id)
+                unattempted_exercises = get_unattempted_exercises(
+                    session=session, user_id=user_id, topic_id=topic.id, difficulty=level
+                    )
+                # Check if there are any exercises
+                if unattempted_exercises:
+                    # Select a random exercise
+                    exercise = random.choice(unattempted_exercises)
+                    await update.message.reply_text(
+                        f"Te recomiendo este ejercicio:\n\n*{exercise.title}*\n\n{exercise.description}",
+                        parse_mode="Markdown",
+                    )
+                else:
+                    await update.message.reply_text("Ya no hay ejercicios disponibles para tu nivel. ¡Bien hecho!")
+        except Exception as e:
+            logger.error(f"Error sugesting exercise: {e}")
 
     def run(self):
         """Start polling for updates."""
