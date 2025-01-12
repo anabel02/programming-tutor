@@ -92,6 +92,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
+                user = first_or_default(session=session, model=User, user_id=str(user_id))
                 topic = first_or_default(session=session, model=Topic, name=topic_name)
                 # handle null topic
                 level = get_highest_completed_level(session, user_id, topic.id)
@@ -106,6 +107,8 @@ class TelegramBot:
                         f"Te recomiendo este ejercicio:\n\n*{exercise.title}*\n\n{exercise.description}",
                         parse_mode="MarkdownV2"
                     )
+                    user.exercises.append(exercise)
+                    session.commit()
                 else:
                     await update.message.reply_text("Ya no hay ejercicios disponibles para tu nivel. ¡Bien hecho!")
         except Exception as e:
