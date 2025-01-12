@@ -9,6 +9,7 @@ from datetime import datetime
 # Base for all models
 Base = declarative_base()
 
+
 # Join table for the many-to-many relationship between Users and Exercises
 user_exercise = Table(
     'user_exercise',
