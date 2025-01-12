@@ -3,8 +3,10 @@ import os
 from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes
 from sqlalchemy.orm import Session
-from telegram_bot.database import SessionLocal, User
+from telegram_bot.database import SessionLocal
+from telegram_bot.models import user_exercise, User, Exercise
 from dotenv import load_dotenv
+import random
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +29,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("start", self.start))
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CommandHandler("ask", self.handle_message))
+        self.app.add_handler(CommandHandler("exercise", self.exercise))
         self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.echo))
         self.app.add_handler(MessageHandler(filters.COMMAND, self.unknown))
 
@@ -80,6 +83,49 @@ class TelegramBot:
     async def unknown(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=update.effective_chat.id, text='''
                                        Sorry, I didn't understand that command.''')
+
+    # Definimos el comando /exercise
+    async def exercise(self, update: Update, context: CallbackContext):
+        # Extraer información del usuario
+        user_id = update.effective_user.id
+        session: Session = SessionLocal()
+
+        # Obtener el nivel más avanzado completado por el usuario
+        completed_difficulties = session.execute(
+            user_exercise.select()
+            .where(user_exercise.c.user_id == user_id)
+        ).fetchall()
+
+        if completed_difficulties:
+            # Determinar el nivel más avanzado completado
+            completed_levels = [row.difficulty for row in completed_difficulties]
+            next_level = self.get_next_difficulty(max(completed_levels))
+
+            # Buscar ejercicios de arrays en el siguiente nivel
+            exercises = session.query(Exercise).filter(
+                Exercise.difficulty == next_level,
+                Exercise.topic.has('conditionals')
+            ).all()
+
+            if exercises:
+                # Elegir un ejercicio aleatoriamente
+                exercise = random.choice(exercises)
+                update.message.reply_text(
+                    f"Te recomiendo este ejercicio:\n\n*{exercise.title}*\n\n{exercise.description}",
+                    parse_mode="Markdown",
+                )
+            else:
+                await update.message.reply_text("No hay ejercicios disponibles para tu nivel. ¡Bien hecho!")
+        else:
+            await update.message.reply_text("Parece que aún no has completado ningún ejercicio. ¡Empieza con uno básico!")
+
+    # Función auxiliar para obtener el siguiente nivel de dificultad
+    def get_next_difficulty(self, current_level):
+        levels = ["Basic", "Intermediate", "Advanced"]
+        try:
+            return levels[levels.index(current_level) + 1]
+        except IndexError:
+            return "Advanced"  # Ya está en el nivel máximo
 
     def run(self):
         """Start polling for updates."""

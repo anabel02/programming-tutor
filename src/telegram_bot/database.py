@@ -2,8 +2,6 @@ from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker, Session
 import psycopg2
 from telegram_bot.models import Base, User, Topic, Exercise
-import json
-from utils.populate_exercises_table import populate_database
 
 # Database configuration
 DB_USER = "postgres"
@@ -47,17 +45,3 @@ print("Tables created successfully.")
 inspector = inspect(engine)
 tables = inspector.get_table_names()
 print(f"Existing tables: {tables}")
-
-
-# Path to the JSON file
-json_file_path = "src/utils/exercises.json"
-
-# Load data from JSON
-with open(json_file_path, "r", encoding="utf-8") as file:
-    data = json.load(file)
-
-# Populate the database
-with Session(engine) as session:
-    populate_database(session, data)
-
-print("Database populated successfully.")
