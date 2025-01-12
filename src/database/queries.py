@@ -14,7 +14,7 @@ def get_unattempted_exercises(session, user_id: int, topic_id: str, difficulty: 
     valid_difficulties = difficulty_levels[difficulty_levels.index(difficulty):]
 
     # Subquery para obtener los ejercicios ya intentados por el usuario
-    attempted_exercises = (
+    attempted_exercises_subquery = (
         session.query(user_exercise.c.exercise_id)
         .filter(user_exercise.c.user_id == user_id)
         .subquery()
@@ -27,7 +27,7 @@ def get_unattempted_exercises(session, user_id: int, topic_id: str, difficulty: 
         .filter(
             Topic.id == topic_id,  # Filtrar por el topic
             Exercise.difficulty.in_(valid_difficulties),  # Filtrar por dificultad
-            ~Exercise.id.in_(attempted_exercises)  # Excluir ejercicios ya intentados
+            ~Exercise.id.in_(attempted_exercises_subquery)  # Excluir ejercicios ya intentados
         )
     )
 
