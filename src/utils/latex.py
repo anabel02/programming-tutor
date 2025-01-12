@@ -16,7 +16,7 @@ def latex_to_markdown_v2(latex_content):
     """
     # Remove \textcolor{color}{...} commands
     latex_content = re.sub(r'\\textcolor\{.*?\}\{(.*?)\}', r'\1', latex_content)
-    
+
     # Replace LaTeX section and subsection headers with Markdown headers
     latex_content = re.sub(r'\\subsection\*{(.*?)}', r'\n **\1**', latex_content)
 
@@ -59,7 +59,7 @@ exercise_data = {
     "title": "Mayor de dos números",
     "content": r"""
    Escribe un programa que determine si un entero es primo o no.
-   
+
     Un número entero positivo \( n \) se dice que es \textit{primo} si tiene exactamente dos divisores distintos: \( 1 \) y el propio número \( n \). Es decir, \( n \) es primo si y solo si no existen otros divisores \( d \) tal que \( 1 < d < n \) y \( d \) divide a \( n \). Formalmente, podemos escribir:
     \[
     n \text{ es primo} \iff  \forall d \in \mathbb{Z}^+ \, \text{se cumple que si} \, d \mid n \text{, entonces } d = 1 \text{ o } d = n.
