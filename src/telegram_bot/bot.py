@@ -110,9 +110,9 @@ class TelegramBot:
                     return
 
                 # Get the user's level and unattempted exercises
-                level = get_highest_completed_level(session, user_id, topic.id)
+                level = get_highest_completed_level(session, user.id, topic.id)
                 unattempted_exercises = get_unattempted_exercises(
-                    session=session, user_id=user_id, topic_id=topic.id, difficulty=level
+                    session=session, user_id=user.id, topic_id=topic.id, difficulty=level
                 )
 
                 # Recommend an exercise if available
