@@ -4,11 +4,12 @@ from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes
 from sqlalchemy.orm import Session
 from database.database import SessionLocal
-from database.models import User, Exercise, Topic
+from database.models import User, Topic
 from database.crud import create_record, record_exists, first_or_default
 from database.queries import get_highest_completed_level, get_unattempted_exercises
 from dotenv import load_dotenv
 import random
+from typing import List
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -57,7 +58,9 @@ class TelegramBot:
         try:
             with SessionLocal() as session:
                 if not record_exists(session, User, user_id=user_id):
-                    create_record(session, User, user_id=user_id, chat_id=chat_id, first_name=first_name, last_name=last_name)
+                    create_record(
+                        session, User, user_id=user_id, chat_id=chat_id, first_name=first_name, last_name=last_name
+                    )
         except Exception as e:
             logger.error(f"Error adding user: {e}")
 
@@ -81,38 +84,53 @@ class TelegramBot:
         await context.bot.send_message(chat_id=update.effective_chat.id, text='''
                                        Sorry, I didn't understand that command.''')
 
-    # Definimos el comando /exercise
     async def exercise(self, update: Update, context: CallbackContext):
-        # Extraer información del usuario
         user_id = update.effective_user.id
-        session: Session = SessionLocal()
-        # Obtén el resto del mensaje después del comando
-        args = context.args  # Una lista de palabras separadas por espacios
+        session: Session
+        args: List[str] = context.args
+
+        # Validate the topic argument
+        if not args:
+            await update.message.reply_text("Por favor, indica un tema para recomendar ejercicios.")
+            return
+
         topic_name = args[0]
 
         try:
             with SessionLocal() as session:
+                # Fetch the user and topic
                 user = first_or_default(session=session, model=User, user_id=str(user_id))
+                if not user:
+                    await update.message.reply_text("No se encontró al usuario en el sistema.")
+                    return
+
                 topic = first_or_default(session=session, model=Topic, name=topic_name)
-                # handle null topic
+                if not topic:
+                    await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
+                    return
+
+                # Get the user's level and unattempted exercises
                 level = get_highest_completed_level(session, user_id, topic.id)
                 unattempted_exercises = get_unattempted_exercises(
                     session=session, user_id=user_id, topic_id=topic.id, difficulty=level
-                    )
-                # Check if there are any exercises
+                )
+
+                # Recommend an exercise if available
                 if unattempted_exercises:
-                    # Select a random exercise
                     exercise = random.choice(unattempted_exercises)
                     await update.message.reply_text(
                         f"Te recomiendo este ejercicio:\n\n*{exercise.title}*\n\n{exercise.description}",
                         parse_mode="MarkdownV2"
                     )
+                    # Associate the exercise with the user
                     user.exercises.append(exercise)
                     session.commit()
                 else:
                     await update.message.reply_text("Ya no hay ejercicios disponibles para tu nivel. ¡Bien hecho!")
+
         except Exception as e:
-            logger.error(f"Error sugesting exercise: {e}")
+            logger.error(f"Error suggesting exercise: {e}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al recomendar el ejercicio. Inténtalo nuevamente más tarde.")
 
     def run(self):
         """Start polling for updates."""
