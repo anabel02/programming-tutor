@@ -11,5 +11,5 @@ if __name__ == "__main__":
     answer = ai_tutor.answer_question(question)
     print(answer['answer'])
 
-    bot = TelegramBot(ai_tutor)
+    bot = TelegramBot(ai_tutor, llm)
     bot.run()

@@ -16,8 +16,9 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 
 
 class TelegramBot:
-    def __init__(self, ai_tutor):
+    def __init__(self, ai_tutor, llm):
         self.ai_tutor = ai_tutor
+        self.llm = llm
         self.app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
         self.setup_handlers()
 
