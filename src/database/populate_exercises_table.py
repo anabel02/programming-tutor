@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from database.models import Topic, Exercise  # Assuming models are defined in models.py
+from database.latex import latex_to_markdown_v2
 
 
 # Function to add topics and exercises
@@ -22,7 +23,7 @@ def populate_database(session: Session, data: dict):
         # Handle exercises
         exercise = Exercise(
             title=exercise_data["title"],
-            description=f"Path: {exercise_data['path']}",
+            description=latex_to_markdown_v2(exercise_data["content"]),
             hints="Refer to the associated LaTeX file.",
             difficulty=exercise_data["difficulty"],
             topic_id=topic.id  # Assuming one topic per exercise
