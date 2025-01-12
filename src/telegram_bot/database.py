@@ -1,53 +1,47 @@
 from sqlalchemy import create_engine, inspect
-from sqlalchemy.orm import sessionmaker, declarative_base
+from sqlalchemy.orm import sessionmaker
 import psycopg2
-from sqlalchemy import Column, Integer, String
+from telegram_bot.models import Base, User  # Importing Base and User from models.py
 
-DATABASE_URL = "postgresql://postgres:root@localhost:5432/tesis"
+# Database configuration
+DB_USER = "postgres"
+DB_PASSWORD = "root"
+DB_HOST = "localhost"
+DB_PORT = "5432"
+DB_NAME = "tesis"
+DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+
+
+def ensure_database(db_url, db_name):
+    """
+    Ensures the specified database exists; creates it if not.
+    """
+    admin_db_url = db_url.rsplit("/", 1)[0] + "/postgres"  # Connect to 'postgres' for admin tasks
+    with psycopg2.connect(admin_db_url) as conn:
+        conn.autocommit = True
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (db_name,))
+            if not cur.fetchone():
+                print(f"Database '{db_name}' not found. Creating it...")
+                cur.execute(f"CREATE DATABASE {db_name}")
+                print(f"Database '{db_name}' created successfully.")
+            else:
+                print(f"Database '{db_name}' already exists.")
 
 
 # Ensure the database exists
-def ensure_database():
-    conn = psycopg2.connect("postgresql://postgres:root@localhost:5432/postgres")
-    conn.autocommit = True
-    with conn.cursor() as cur:
-        cur.execute("SELECT 1 FROM pg_database WHERE datname = 'tesis'")
-        exists = cur.fetchone()
-        if not exists:
-            cur.execute("CREATE DATABASE tesis")
-    conn.close()
+ensure_database(DATABASE_URL, DB_NAME)
 
-
-ensure_database()
-
-# Database engine
+# Database engine and session setup
 engine = create_engine(DATABASE_URL, echo=True)
-
-# Session maker
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-# Base for models
-Base = declarative_base()
-
-
-# Define User model
-class User(Base):
-    __tablename__ = "users"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(String, unique=True, index=True)
-    chat_id = Column(String, unique=True)
-    language = Column(String, default="en")
-    first_name = Column(String)
-    last_name = Column(String)
-
-
-# Create tables
+# Create all tables
 print("Creating tables...")
 Base.metadata.create_all(bind=engine)
 print("Tables created successfully.")
 
-# Verify tables
+# Verify and list tables
 inspector = inspect(engine)
 tables = inspector.get_table_names()
 print(f"Existing tables: {tables}")
