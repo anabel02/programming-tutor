@@ -104,7 +104,7 @@ class TelegramBot:
                     exercise = random.choice(unattempted_exercises)
                     await update.message.reply_text(
                         f"Te recomiendo este ejercicio:\n\n*{exercise.title}*\n\n{exercise.description}",
-                        parse_mode="Markdown",
+                        parse_mode="MarkdownV2"
                     )
                 else:
                     await update.message.reply_text("Ya no hay ejercicios disponibles para tu nivel. ¡Bien hecho!")
