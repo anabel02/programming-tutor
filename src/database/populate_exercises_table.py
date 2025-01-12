@@ -1,7 +1,5 @@
 from sqlalchemy.orm import Session
-from telegram_bot.models import Topic, Exercise  # Assuming models are defined in models.py
-from telegram_bot.database import engine
-import json
+from database.models import Topic, Exercise  # Assuming models are defined in models.py
 
 
 # Function to add topics and exercises
@@ -33,17 +31,3 @@ def populate_database(session: Session, data: dict):
 
     # Commit all changes
     session.commit()
-
-
-# Path to the JSON file
-json_file_path = "src/telegram_bot/exercises.json"
-
-# Load data from JSON
-with open(json_file_path, "r", encoding="utf-8") as file:
-    data = json.load(file)
-
-# Populate the database
-with Session(engine) as session:
-    populate_database(session, data)
-
-print("Database populated successfully.")
