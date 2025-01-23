@@ -40,11 +40,11 @@ class TelegramBot:
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_question = update.message.text
-        await update.message.reply_text("Thinking... 🤔")
+        await update.message.reply_text("Pensando... 🤔")
 
         try:
             ai_response = self.ai_tutor.answer_question(user_question)
-            answer = ai_response.get("answer", "Sorry, I couldn't find an answer.")
+            answer = ai_response.get("answer", "Lo siento, no encontré una respuesta.")
             await update.message.reply_text(answer, parse_mode="Markdown")
         except Exception as e:
             logger.error(e)
@@ -60,8 +60,9 @@ class TelegramBot:
             with SessionLocal() as session:
                 user: User = UserService.get_or_create_user(session, user_id, chat_id, first_name, last_name)
                 await update.message.reply_text(
-                    f"Hello, {user.first_name}! 👋 Welcome to the bot. "
-                    "Type /help to see what I can do!")
+                    f"¡Hola, {user.first_name}! 👋 Bienvenido al bot. "
+                    "Escribe /help para ver lo que puedo hacer."
+                )
         except Exception as e:
             logger.error(f"Error adding user: {e}")
             await update.message.reply_text("An error occurred while adding you to the system.")
@@ -69,17 +70,18 @@ class TelegramBot:
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Provide help information to the user."""
         await update.message.reply_text(
-            "Here are the commands you can use:\n"
-            "/start - Start interacting with the bot\n"
-            "/help - Get help on how to use the bot"
+            "Estos son los comandos que puedes usar:\n"
+            "/start - Inicia la interacción con el bot\n"
+            "/help - Obtén ayuda sobre cómo usar el bot\n"
+            "/exercise [tema] - Solicita un ejercicio de un tema específico\n"
+            "/ask [pregunta] - Haz una pregunta al bot"
         )
 
     async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
 
     async def unknown(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text='''
-                                       Sorry, I didn't understand that command.''')
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lo siento, no entiendo ese comando. 😕")
 
     async def exercise(self, update: Update, context: CallbackContext):
         user_id = str(update.effective_user.id)
@@ -106,11 +108,11 @@ class TelegramBot:
                 exercise = ExerciseService.recommend_exercise(session, user, topic)
                 if exercise:
                     await update.message.reply_text(
-                        f"Here's an exercise for you:\n\n*{exercise.title}*\n\n{exercise.description}",
+                        f"Aquí tienes un ejercicio para practicar:\n\n*{exercise.title}*\n\n{exercise.description}",
                         parse_mode="MarkdownV2"
                     )
                 else:
-                    await update.message.reply_text("No exercises available for your level. Great job!")
+                    await update.message.reply_text("No hay ejercicios disponibles para tu nivel. ¡Buen trabajo!")
         except Exception as e:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
             await update.message.reply_text("An error occurred while recommending an exercise.")
