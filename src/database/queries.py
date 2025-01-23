@@ -49,7 +49,8 @@ def get_highest_completed_level(session: Session, user_id: int, topic_id: int):
         .join(user_exercise, user_exercise.c.exercise_id == Exercise.id)
         .filter(
             user_exercise.c.user_id == user_id,
-            Exercise.topic_id == topic_id
+            Exercise.topic_id == topic_id,
+            user_exercise.c.status == 'Completed'
         )
         .scalar()
     )

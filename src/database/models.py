@@ -16,9 +16,7 @@ user_exercise = Table(
     Base.metadata,
     Column('user_id', Integer, ForeignKey('users.id'), primary_key=True),
     Column('exercise_id', Integer, ForeignKey('exercises.id'), primary_key=True),
-    # Column('status', Enum('Not Started', 'In Progress', 'Completed', name='exercise_status'), default='Not Started'),
-    # Column('attempts', Integer, default=0),
-    # Column('last_attempted_at', DateTime, default=datetime.utcnow),
+    Column('status', Enum('In Progress', 'Submitted', 'Completed', name='exercise_status'), default='Completed'),
 )
 
 

@@ -1,7 +1,7 @@
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 import psycopg2
-from database.models import Base, User, Topic, Exercise
+from database.models import Base
 
 # Database configuration
 DB_USER = "postgres"
