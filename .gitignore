@@ -1,6 +1,17 @@
 exercises.json
 data
 
+# Alembic migration files
+*/migrations/*.pyc
+*/migrations/__pycache__/
+
+# Ignore database files (if you are using SQLite or local DB files)
+*.sqlite
+*.db
+
+# Ignore other files generated during migrations (e.g., .log files or temporary files)
+*migrations/*.log
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
