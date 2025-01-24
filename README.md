@@ -31,7 +31,7 @@
         1. Open Telegram and search for the `BotFather`.
         2. Start a chat with `BotFather` and use the `/newbot` command to create a new bot.
         3. Follow the instructions to set up your bot and get the bot token.
-        4. Copy the bot token and add it to your [.env](http://_vscodecontentref_/2) file:
+        4. Copy the bot token and add it to your .env file:
             ```plaintext
             TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
             ```
