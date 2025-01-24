@@ -8,6 +8,7 @@ from typing import List
 from telegram_bot.user_service import UserService
 from telegram_bot.exercise_service import ExerciseService
 from telegram_bot.topic_service import TopicService
+from database.give_hint import give_hint
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +36,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CommandHandler("ask", self.handle_message))
         self.app.add_handler(CommandHandler("exercise", self.exercise))
+        self.app.add_handler(CommandHandler("hint", self.hint_command))
         self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.echo))
         self.app.add_handler(MessageHandler(filters.COMMAND, self.unknown))
 
@@ -116,6 +118,22 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
             await update.message.reply_text("An error occurred while recommending an exercise.")
+
+    async def hint_command(self, update: Update, context: CallbackContext):
+        parts = update.message.text[6:].strip().split(" ", 1)  # Split into topic and exercise
+        topic_name, exercise_title = parts
+        # return topic.strip(), exercise.strip()
+
+        # topic_name = context.args[0]
+        # exercise_title = " ".join(context.args[1:])
+        user_id = update.effective_user.id
+
+        with SessionLocal() as session:
+            # Llamar a la función para obtener la pista
+            hint = give_hint(session, user_id, topic_name, exercise_title)
+
+            # Responder al usuario
+            await update.message.reply_text(hint)
 
     def run(self):
         """Start polling for updates."""
