@@ -2,6 +2,10 @@ import os
 from rag.corpus_loader import PDFCorpusLoader
 from rag.document_vector_store import ChromaVectorDatabase
 from langchain_google_genai import ChatGoogleGenerativeAI
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")
 persist_dir = 'data/chroma_db'
