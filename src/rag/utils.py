@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")
-persist_dir = os.getenv("PERSIST_DIRECTORY")
+persist_dir = 'data/chroma_db'
 
 
 def get_gemini_llm():
@@ -23,7 +23,7 @@ def get_retriever():
     vector_db = ChromaVectorDatabase(persist_directory=persist_dir, google_api_key=api_key)
 
     if (add_docs):
-        folder_path = os.path.abspath("corpus")  # Convert to absolute path
+        folder_path = os.path.abspath("data/corpus")  # Convert to absolute path
         pdf_loader = PDFCorpusLoader(folder_path, chunk_size=5000)
 
         pdf_corpus = pdf_loader.load_corpus()
