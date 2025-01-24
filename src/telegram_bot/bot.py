@@ -8,7 +8,7 @@ from typing import List
 from telegram_bot.user_service import UserService
 from telegram_bot.exercise_service import ExerciseService
 from telegram_bot.topic_service import TopicService
-from database.give_hint import give_hint
+from telegram_bot.hints_service import HintService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -102,7 +102,7 @@ class TelegramBot:
                     await update.message.reply_text("No se encontró al usuario en el sistema.")
                     return
 
-                topic: Topic = TopicService.first_or_default(session=session, name=topic_name)
+                topic: Topic = TopicService.get_by(session=session, name=topic_name)
                 if not topic:
                     await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
                     return
@@ -119,21 +119,39 @@ class TelegramBot:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
             await update.message.reply_text("An error occurred while recommending an exercise.")
 
+    def parse_hint_command(self, command: str):
+        # Ensure the command starts with /hint
+        if not command.startswith("/hint"):
+            return None, None
+
+        # Extract arguments (remove the command prefix)
+        parts = command[6:].strip().split(" ", 1)  # Split into topic and exercise
+        if len(parts) < 2:
+            return None, None
+
+        topic, exercise = parts
+        return topic.strip(), exercise.strip()
+
     async def hint_command(self, update: Update, context: CallbackContext):
-        parts = update.message.text[6:].strip().split(" ", 1)  # Split into topic and exercise
-        topic_name, exercise_title = parts
-        # return topic.strip(), exercise.strip()
+        # Parse the command
+        command = update.message.text
+        topic_name, exercise_title = self.parse_hint_command(command)
 
-        # topic_name = context.args[0]
-        # exercise_title = " ".join(context.args[1:])
-        user_id = update.effective_user.id
+        if not topic_name or not exercise_title:
+            update.message.reply_text("Invalid format. Use: /hint [topic] [exercise]")
+            return
+        user_id = str(update.effective_user.id)
 
-        with SessionLocal() as session:
-            # Llamar a la función para obtener la pista
-            hint = give_hint(session, user_id, topic_name, exercise_title)
+        try:
+            with SessionLocal() as session:
+                # Llamar a la función para obtener la pista
+                hint = HintService.give_hint(session, user_id, topic_name, exercise_title)
 
-            # Responder al usuario
-            await update.message.reply_text(hint)
+                # Responder al usuario
+                await update.message.reply_text(hint)
+        except Exception as e:
+            logger.error(f"Error recommending exercise: {e}", exc_info=True)
+            await update.message.reply_text("An error occurred while recommending an exercise.")
 
     def run(self):
         """Start polling for updates."""

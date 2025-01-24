@@ -1,15 +1,10 @@
 import random
 from sqlalchemy.orm import Session
-from database.models import Topic, User
+from database.models import Topic, User, Exercise
 from database.queries import get_highest_completed_level, get_unattempted_exercises
 
 
 class ExerciseService:
-    @staticmethod
-    def get_topic_by_name(session: Session, topic_name: str) -> Topic:
-        """Fetch a topic by its name."""
-        return session.query(Topic).filter_by(name=topic_name).one_or_none()
-
     @staticmethod
     def recommend_exercise(session: Session, user: User, topic: Topic):
         """Recommend an exercise based on user's progress."""
@@ -25,3 +20,10 @@ class ExerciseService:
             return exercise
 
         return None
+
+    @staticmethod
+    def get_exercise_by_title_and_topic(session, topic_name: str, exercise_title: str):
+        return (session
+                .query(Exercise).join(Topic)
+                .filter(Topic.name == topic_name, Exercise.title == exercise_title)
+                .one_or_none())
