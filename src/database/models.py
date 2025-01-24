@@ -84,8 +84,9 @@ class ExerciseHint(Base):
     __tablename__ = 'exercise_hints'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    exercise_id = Column(Integer, ForeignKey('exercises.id'), nullable=False)
+    order = Column(Integer, nullable=False, default=0)  # Hint priority/order
     hint_text = Column(Text, nullable=False)
+    exercise_id = Column(Integer, ForeignKey('exercises.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
     # Relación con el ejercicio
