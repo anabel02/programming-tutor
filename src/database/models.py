@@ -35,6 +35,9 @@ class User(Base):
     # Many-to-many relationship with exercises
     exercises = relationship('Exercise', secondary=user_exercise, back_populates='users')
 
+    # Relación con pistas entregadas
+    hints_given = relationship("UserHint", back_populates="user")
+
     # Computed property for the full name
     @property
     def full_name(self):
@@ -62,7 +65,6 @@ class Exercise(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
-    hints = Column(Text, nullable=True)  # Can store as a comma-separated string or JSON.
     difficulty = Column(Enum('Basic', 'Intermediate', 'Advanced', name='difficulty_level'), nullable=False)
     topic_id = Column(Integer, ForeignKey('topics.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -73,3 +75,38 @@ class Exercise(Base):
 
     # Many-to-many relationship with users
     users = relationship('User', secondary=user_exercise, back_populates='exercises')
+
+    # Relación con pistas
+    hints = relationship("ExerciseHint", back_populates="exercise")
+
+
+class ExerciseHint(Base):
+    __tablename__ = 'exercise_hints'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    exercise_id = Column(Integer, ForeignKey('exercises.id'), nullable=False)
+    hint_text = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relación con el ejercicio
+    exercise = relationship("Exercise", back_populates="hints")
+
+    # Relación con la tabla de usuarios que han recibido esta pista
+    users_received = relationship(
+        'UserHint', back_populates='hint', cascade='all, delete-orphan'
+    )
+
+
+class UserHint(Base):
+    __tablename__ = 'user_hints'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    hint_id = Column(Integer, ForeignKey('exercise_hints.id'), nullable=False)
+    given_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    # Relación con el usuario y la pista
+    user = relationship("User", back_populates="hints_given")
+
+    # Relación con el modelo ExerciseHint
+    hint = relationship("ExerciseHint", back_populates="users_received")

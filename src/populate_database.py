@@ -33,7 +33,6 @@ def populate_database(session: Session, data: dict):
         exercise = Exercise(
             title=exercise_data["title"],
             description=latex_to_markdown_v2(exercise_data["content"]),
-            hints="Refer to the associated LaTeX file.",
             difficulty=exercise_data["difficulty"],
             topic_id=topic.id  # Assuming one topic per exercise
         )
