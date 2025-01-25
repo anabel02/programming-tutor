@@ -84,5 +84,5 @@ exercise_data = {
 # Convert LaTeX content to MarkdownV2
 markdown_content = latex_to_markdown_v2(exercise_data['content'])
 
-# Display the output
-print(markdown_content)
+# # Display the output
+# print(markdown_content)
