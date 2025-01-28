@@ -3,12 +3,12 @@ from database.models import Topic, Exercise, UserHint, User
 
 class HintService:
     @staticmethod
-    def give_hint(session, user_id: str, topic_name: str, exercise_title: str):
+    def give_hint(session, user_id: str, exercise_id: str):
         # Obtener el ejercicio
         exercise = (
             session.query(Exercise)
             .join(Topic)
-            .filter(Topic.name == topic_name, Exercise.title == exercise_title)
+            .filter(Exercise.id == exercise_id)
             .one()
         )
         user = session.query(User).filter_by(user_id=user_id).one_or_none()
