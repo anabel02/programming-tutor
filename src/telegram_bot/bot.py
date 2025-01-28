@@ -3,7 +3,7 @@ import os
 from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes
 from database.database import SessionLocal
-from database.models import User, Topic, Exercise
+from database.models import User, Topic, Exercise, ExerciseHint
 from typing import List
 from telegram_bot.user_service import UserService
 from telegram_bot.exercise_service import ExerciseService
@@ -68,7 +68,7 @@ class TelegramBot:
                 )
         except Exception as e:
             logger.error(f"Error adding user: {e}")
-            await update.message.reply_text("An error occurred while adding you to the system.")
+            await update.message.reply_text("Ocurrió un error mientras intentaba añadirte al sistema :(.")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Provide help information to the user."""
@@ -122,19 +122,6 @@ class TelegramBot:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba recomendarte un ejercicio :(.")
 
-    def parse_hint_command(self, command: str):
-        # Ensure the command starts with /hint
-        if not command.startswith("/hint"):
-            return None, None
-
-        # Extract arguments (remove the command prefix)
-        parts = command[6:].strip().split(" ", 1)  # Split into topic and exercise
-        if len(parts) < 2:
-            return None, None
-
-        topic, exercise = parts
-        return topic.strip(), exercise.strip()
-
     async def hint_command(self, update: Update, context: CallbackContext):
         args: List[str] = context.args
 
@@ -148,10 +135,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                # Llamar a la función para obtener la pista
-                hint = HintService.give_hint(session, user_id, exercise_id)
-
-                # Responder al usuario
+                hint: ExerciseHint = HintService.give_hint(session, user_id, exercise_id)
                 await update.message.reply_text(hint)
         except Exception as e:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
