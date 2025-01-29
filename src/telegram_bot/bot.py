@@ -43,6 +43,11 @@ class TelegramBot:
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_question = update.message.text
+
+        if not user_question or user_question.strip() == "":
+            await update.message.reply_text("Por favor, envía una pregunta válida. La pregunta no puede ser vacía.")
+            return
+
         await update.message.reply_text("Pensando... 🤔")
 
         try:
@@ -156,7 +161,7 @@ class TelegramBot:
                 )
         except Exception as e:
             logger.error(f"Error fetching topics: {e}", exc_info=True)
-            await update.message.reply_text("Ocurrió un error al obtener la lista de temas.")
+            await update.message.reply_text("Ocurrió un error al obtener la lista de temas :(.")
 
     def run(self):
         """Start polling for updates."""
