@@ -1,21 +1,19 @@
 import random
 from sqlalchemy.orm import Session
-from database.models import Topic, User, Exercise
+from database.models import Topic, Student, Exercise
 from database.queries import get_highest_completed_level, get_unattempted_exercises
 
 
 class ExerciseService:
     @staticmethod
-    def recommend_exercise(session: Session, user: User, topic: Topic):
+    def recommend_exercise(session: Session, student: Student, topic: Topic):
         """Recommend an exercise based on user's progress."""
-        level = get_highest_completed_level(session, user.id, topic.id)
-        unattempted_exercises = get_unattempted_exercises(
-            session=session, user_id=user.id, topic_id=topic.id, difficulty=level
-        )
+        level = get_highest_completed_level(session, student.id, topic.id)
+        unattempted_exercises = get_unattempted_exercises(session, student.id, topic.id, level)
 
         if unattempted_exercises:
             exercise = random.choice(unattempted_exercises)
-            user.exercises.append(exercise)
+            student.exercises.append(exercise)
             session.commit()
             return exercise
 

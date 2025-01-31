@@ -1,9 +1,9 @@
-from database.models import Topic, Exercise, user_exercise
+from database.models import Topic, Exercise, student_exercise
 from sqlalchemy import func, case
 from sqlalchemy.orm import Session
 
 
-def get_unattempted_exercises(session, user_id: int, topic_id: str, difficulty: str):
+def get_unattempted_exercises(session, student_id: int, topic_id: str, difficulty: str):
     if difficulty is None:
         difficulty = 'Basic'
 
@@ -15,8 +15,8 @@ def get_unattempted_exercises(session, user_id: int, topic_id: str, difficulty: 
 
     # Subquery para obtener los ejercicios ya intentados por el usuario
     attempted_exercises_subquery = (
-        session.query(user_exercise.c.exercise_id)
-        .filter(user_exercise.c.user_id == user_id)
+        session.query(student_exercise.c.exercise_id)
+        .filter(student_exercise.c.student_id == student_id)
         .subquery()
     )
 
@@ -34,7 +34,7 @@ def get_unattempted_exercises(session, user_id: int, topic_id: str, difficulty: 
     return query.all()
 
 
-def get_highest_completed_level(session: Session, user_id: int, topic_id: int):
+def get_highest_completed_level(session: Session, student_id: int, topic_id: int):
     # Map difficulty levels to a comparable order
     difficulty_order = case(
         (Exercise.difficulty == 'Basic', 1),
@@ -46,11 +46,11 @@ def get_highest_completed_level(session: Session, user_id: int, topic_id: int):
     # Query for the highest completed level in a topic
     highest_level = (
         session.query(func.max(difficulty_order))
-        .join(user_exercise, user_exercise.c.exercise_id == Exercise.id)
+        .join(student_exercise, student_exercise.c.exercise_id == Exercise.id)
         .filter(
-            user_exercise.c.user_id == user_id,
+            student_exercise.c.student_id == student_id,
             Exercise.topic_id == topic_id,
-            user_exercise.c.status == 'Completed'
+            student_exercise.c.status == 'Completed'
         )
         .scalar()
     )

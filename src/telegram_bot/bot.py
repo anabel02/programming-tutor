@@ -3,9 +3,9 @@ import os
 from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes
 from database.database import SessionLocal
-from database.models import User, Topic, Exercise, ExerciseHint
+from database.models import Topic, Exercise, ExerciseHint, Student
 from typing import List
-from telegram_bot.user_service import UserService
+from telegram_bot.student_service import StudentService
 from telegram_bot.exercise_service import ExerciseService
 from telegram_bot.topic_service import TopicService
 from telegram_bot.hints_service import HintService
@@ -66,7 +66,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                user: User = UserService.get_or_create_user(session, user_id, chat_id, first_name, last_name)
+                user: Student = StudentService.get_or_create_user(session, user_id, chat_id, first_name, last_name)
                 await update.message.reply_text(
                     f"¡Hola, {user.first_name}! 👋 Bienvenido al bot. "
                     "Escribe /help para ver lo que puedo hacer."
@@ -105,7 +105,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                user: User = UserService.first_or_default(session=session, user_id=user_id)
+                user: Student = StudentService.first_or_default(session=session, user_id=user_id)
                 if not user:
                     await update.message.reply_text("No se encontró al usuario en el sistema.")
                     return
