@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
-from database.models import Topic, Exercise  # Assuming models are defined in models.py
-from utils.latex import latex_to_markdown_v2
+from database.models import Topic, Exercise
 from database.database import engine
 import json
 
@@ -32,7 +31,7 @@ def populate_database(session: Session, data: dict):
         # Handle exercises
         exercise = Exercise(
             title=exercise_data["title"],
-            description=latex_to_markdown_v2(exercise_data["content"]),
+            description=exercise_data["content"],
             difficulty=exercise_data["difficulty"],
             topic_id=topic.id  # Assuming one topic per exercise
         )
