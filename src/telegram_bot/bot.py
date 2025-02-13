@@ -3,12 +3,9 @@ import os
 from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes
 from database.database import SessionLocal
-from database.models import User, Topic
+from database.models import Topic, Exercise, ExerciseHint, Student
 from typing import List
-from telegram_bot.user_service import UserService
-from telegram_bot.exercise_service import ExerciseService
-from telegram_bot.topic_service import TopicService
-from telegram_bot.hints_service import HintService
+from services import StudentService, ExerciseService, TopicService, HintService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -37,11 +34,17 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("ask", self.handle_message))
         self.app.add_handler(CommandHandler("exercise", self.exercise))
         self.app.add_handler(CommandHandler("hint", self.hint_command))
+        self.app.add_handler(CommandHandler("topics", self.list_topics))
         self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.echo))
         self.app.add_handler(MessageHandler(filters.COMMAND, self.unknown))
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user_question = update.message.text
+
+        if not user_question or user_question.strip() == "":
+            await update.message.reply_text("Por favor, envía una pregunta válida. La pregunta no puede ser vacía.")
+            return
+
         await update.message.reply_text("Pensando... 🤔")
 
         try:
@@ -60,14 +63,14 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                user: User = UserService.get_or_create_user(session, user_id, chat_id, first_name, last_name)
+                user: Student = StudentService.get_or_create_user(session, user_id, chat_id, first_name, last_name)
                 await update.message.reply_text(
                     f"¡Hola, {user.first_name}! 👋 Bienvenido al bot. "
                     "Escribe /help para ver lo que puedo hacer."
                 )
         except Exception as e:
             logger.error(f"Error adding user: {e}")
-            await update.message.reply_text("An error occurred while adding you to the system.")
+            await update.message.reply_text("Ocurrió un error mientras intentaba añadirte al sistema :(.")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Provide help information to the user."""
@@ -75,8 +78,10 @@ class TelegramBot:
             "Estos son los comandos que puedes usar:\n"
             "/start - Inicia la interacción con el bot\n"
             "/help - Obtén ayuda sobre cómo usar el bot\n"
+            "/topics - Lista todos los temas\n"
+            "/ask [pregunta] - Haz una pregunta al bot\n"
             "/exercise [tema] - Solicita un ejercicio de un tema específico\n"
-            "/ask [pregunta] - Haz una pregunta al bot"
+            "/hint [número del ejercicio] - Solicita una pista para resolver el ejercicio"
         )
 
     async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -97,7 +102,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                user: User = UserService.first_or_default(session=session, user_id=user_id)
+                user: Student = StudentService.first_or_default(session=session, user_id=user_id)
                 if not user:
                     await update.message.reply_text("No se encontró al usuario en el sistema.")
                     return
@@ -107,51 +112,73 @@ class TelegramBot:
                     await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
                     return
 
-                exercise = ExerciseService.recommend_exercise(session, user, topic)
+                exercise: Exercise = ExerciseService.recommend_exercise(session, user, topic)
                 if exercise:
                     await update.message.reply_text(
-                        f"Aquí tienes un ejercicio para practicar:\n\n*{exercise.title}*\n\n{exercise.description}",
+                        f"Aquí tienes un ejercicio para practicar:\n\n*{exercise.id}.{exercise.title}*\n\n{exercise.description}",
                         parse_mode="MarkdownV2"
                     )
                 else:
                     await update.message.reply_text("No hay ejercicios disponibles para tu nivel. ¡Buen trabajo!")
         except Exception as e:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
-            await update.message.reply_text("An error occurred while recommending an exercise.")
-
-    def parse_hint_command(self, command: str):
-        # Ensure the command starts with /hint
-        if not command.startswith("/hint"):
-            return None, None
-
-        # Extract arguments (remove the command prefix)
-        parts = command[6:].strip().split(" ", 1)  # Split into topic and exercise
-        if len(parts) < 2:
-            return None, None
-
-        topic, exercise = parts
-        return topic.strip(), exercise.strip()
+            await update.message.reply_text("Ocurrió un error mientras intentaba recomendarte un ejercicio :(.")
 
     async def hint_command(self, update: Update, context: CallbackContext):
-        # Parse the command
-        command = update.message.text
-        topic_name, exercise_title = self.parse_hint_command(command)
+        args: List[str] = context.args
 
-        if not topic_name or not exercise_title:
-            update.message.reply_text("Invalid format. Use: /hint [topic] [exercise]")
+        if not args:
+            await update.message.reply_text("Por favor, indica el número del ejercicio para sugerir una pista.")
             return
+
+        exercise_id = args[0]
+
         user_id = str(update.effective_user.id)
 
         try:
             with SessionLocal() as session:
-                # Llamar a la función para obtener la pista
-                hint = HintService.give_hint(session, user_id, topic_name, exercise_title)
-
-                # Responder al usuario
+                hint: ExerciseHint = HintService.give_hint(session, user_id, exercise_id)
                 await update.message.reply_text(hint)
         except Exception as e:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
-            await update.message.reply_text("An error occurred while recommending an exercise.")
+            await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte una pista :(.")
+
+    async def solution_command(self, update: Update, context: CallbackContext):
+        args: List[str] = context.args
+
+        if not args:
+            await update.message.reply_text("Por favor, indica el número del ejercicio para darte la solución.")
+            return
+
+        exercise_id = args[0]
+
+        try:
+            with SessionLocal() as session:
+                exercise: Exercise = ExerciseService.get_by(session, id=exercise_id)
+                if not exercise.solution:
+                    await update.message.reply_text("No tenemos solución para este ejercicio")
+                else:
+                    await update.message.reply_text(exercise.solution)
+        except Exception as e:
+            logger.error(f"Error recommending exercise: {e}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte una pista :(.")
+
+    async def list_topics(self, update: Update, context: CallbackContext):
+        """List all available topics."""
+        try:
+            with SessionLocal() as session:
+                topics = TopicService.get_all(session)
+                if not topics:
+                    await update.message.reply_text("No hay temas disponibles en este momento.")
+                    return
+
+                topics_list = "\n".join([f"- {topic.name}" for topic in topics])
+                await update.message.reply_text(
+                    f"Estos son los temas disponibles:\n{topics_list}"
+                )
+        except Exception as e:
+            logger.error(f"Error fetching topics: {e}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al obtener la lista de temas :(.")
 
     def run(self):
         """Start polling for updates."""

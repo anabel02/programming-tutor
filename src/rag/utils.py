@@ -24,7 +24,7 @@ def get_retriever():
 
     if (add_docs):
         folder_path = os.path.abspath("data/corpus")  # Convert to absolute path
-        pdf_loader = PDFCorpusLoader(folder_path, chunk_size=5000)
+        pdf_loader = PDFCorpusLoader(folder_path)
 
         pdf_corpus = pdf_loader.load_corpus()
         print(f"Loaded {len(pdf_corpus)} documents.")
