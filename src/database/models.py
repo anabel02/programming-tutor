@@ -28,28 +28,28 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
-    # Columna para discriminación de herencia
+    # Column for inheritance discrimination
     type = Column(String(50), nullable=False)
 
-    # Configuración de herencia
+    # Configuration for inheritance
     __mapper_args__ = {
-        'polymorphic_on': type,  # Columna para discriminación de herencia
-        'polymorphic_identity': 'user',  # Identificador para la clase base
+        'polymorphic_on': type,  # Column for inheritance discrimination
+        'polymorphic_identity': 'user',  # Identifier for the base class
     }
 
 
-# Student Model (hereda de User)
+# Student Model
 class Student(User):
     __tablename__ = 'students'
 
-    id = Column(Integer, ForeignKey('users.id'), primary_key=True)  # Clave foránea a users.id
+    id = Column(Integer, ForeignKey('users.id'), primary_key=True)
     first_name = Column(String, nullable=True)
     last_name = Column(String, nullable=True)
 
-    # Many-to-many relationship with exercises
+    # Many-to-many relationship with exercises suggested
     exercises = relationship('Exercise', secondary=student_exercise)
 
-    # Relación con pistas entregadas
+    # Relationship with given hints
     hints_given = relationship("StudentHint", back_populates="student")
 
     # Computed property for the full name
@@ -57,9 +57,9 @@ class Student(User):
     def full_name(self):
         return f"{self.first_name or ''} {self.last_name or ''}".strip()
 
-    # Configuración de herencia
+    # Configuration for inheritance
     __mapper_args__ = {
-        'polymorphic_identity': 'student',  # Identificador para la clase Student
+        'polymorphic_identity': 'student',
     }
 
 
@@ -101,7 +101,7 @@ class ExerciseHint(Base):
     __tablename__ = 'exercise_hints'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    order = Column(Integer, nullable=False, default=0)  # Hint priority/order
+    order = Column(Integer, nullable=False, default=0)
     hint_text = Column(Text, nullable=False)
     exercise_id = Column(Integer, ForeignKey('exercises.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -109,7 +109,7 @@ class ExerciseHint(Base):
     # Relationship with exercise
     exercise = relationship("Exercise", back_populates="hints")
 
-    # Relación con la tabla de estudiantes que han recibido esta pista
+    # Relationship with students who have received this hint
     students_received = relationship(
         'StudentHint', back_populates='hint', cascade='all, delete-orphan'
     )
