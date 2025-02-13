@@ -146,6 +146,26 @@ class TelegramBot:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte una pista :(.")
 
+    async def solution_command(self, update: Update, context: CallbackContext):
+        args: List[str] = context.args
+
+        if not args:
+            await update.message.reply_text("Por favor, indica el número del ejercicio para darte la solución.")
+            return
+
+        exercise_id = args[0]
+
+        try:
+            with SessionLocal() as session:
+                exercise: Exercise = ExerciseService.get_by(session, id=exercise_id)
+                if not exercise.solution:
+                    await update.message.reply_text("No tenemos solución para este ejercicio")
+                else:
+                    await update.message.reply_text(exercise.solution)
+        except Exception as e:
+            logger.error(f"Error recommending exercise: {e}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte una pista :(.")
+
     async def list_topics(self, update: Update, context: CallbackContext):
         """List all available topics."""
         try:

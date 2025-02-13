@@ -4,7 +4,7 @@ from database.database import engine
 import json
 
 # Path to the JSON file
-json_file_path = "data/exercises.json"
+json_file_path = "data/topics.json"
 
 # Load data from JSON
 with open(json_file_path, "r", encoding="utf-8") as file:
@@ -12,32 +12,23 @@ with open(json_file_path, "r", encoding="utf-8") as file:
 
 
 # Function to add topics and exercises
-def populate_database(session: Session, data: dict):
-    # Cache for topics to avoid duplicates
-    topic_cache = {}
+def populate_database(session: Session, data: list):
+    for topic_data in data:
+        topic = Topic(name=topic_data["title"], description=topic_data["description"])
 
-    for exercise_data in data.get("exercises", []):
-        # Handle topics (categories)
-        for category in exercise_data.get("categories", []):
-            if category not in topic_cache:
-                # Create a new topic if it doesn't exist
-                topic = Topic(name=category, description=f"Exercises related to {category}.")
-                session.add(topic)
-                session.commit()
-                topic_cache[category] = topic
-            else:
-                topic = topic_cache[category]
+        exercises = []
+        for exercise_data in topic_data.get("exercises", []):
+            exercise = Exercise(
+                title=exercise_data["title"],
+                description=exercise_data["content"],
+                difficulty=exercise_data["difficulty"],
+                solution=exercise_data["solution"]
+            )
+            exercises.append(exercise)
+        topic.exercises = exercises
 
-        # Handle exercises
-        exercise = Exercise(
-            title=exercise_data["title"],
-            description=exercise_data["content"],
-            difficulty=exercise_data["difficulty"],
-            topic_id=topic.id  # Assuming one topic per exercise
-        )
-        session.add(exercise)
+        session.add(topic)
 
-    # Commit all changes
     session.commit()
 
 

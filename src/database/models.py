@@ -18,7 +18,7 @@ student_exercise = Table(
 )
 
 
-# User Model (clase base)
+# User Model
 class User(Base):
     __tablename__ = 'users'
 
@@ -85,6 +85,7 @@ class Exercise(Base):
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
     difficulty = Column(Enum('Basic', 'Intermediate', 'Advanced', name='difficulty_level'), nullable=False)
+    solution = Column(Text, nullable=True)
     topic_id = Column(Integer, ForeignKey('topics.id'), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

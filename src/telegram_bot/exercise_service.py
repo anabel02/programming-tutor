@@ -2,9 +2,14 @@ import random
 from sqlalchemy.orm import Session
 from database.models import Topic, Student, Exercise
 from database.queries import get_highest_completed_level, get_unattempted_exercises
+from database.crud import first_or_default
 
 
 class ExerciseService:
+    @staticmethod
+    def get_by(session: Session, **filters):
+        return first_or_default(session=session, model=Exercise, **filters)
+
     @staticmethod
     def recommend_exercise(session: Session, student: Student, topic: Topic):
         """Recommend an exercise based on user's progress."""
