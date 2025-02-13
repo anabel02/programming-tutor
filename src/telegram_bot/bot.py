@@ -5,10 +5,7 @@ from telegram.ext import filters, MessageHandler, Application, CommandHandler, C
 from database.database import SessionLocal
 from database.models import Topic, Exercise, ExerciseHint, Student
 from typing import List
-from telegram_bot.student_service import StudentService
-from telegram_bot.exercise_service import ExerciseService
-from telegram_bot.topic_service import TopicService
-from telegram_bot.hints_service import HintService
+from services import StudentService, ExerciseService, TopicService, HintService
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

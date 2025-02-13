@@ -1,6 +1,8 @@
-from database.models import Topic, Exercise, student_exercise
-from sqlalchemy import func, case
+import random
 from sqlalchemy.orm import Session
+from sqlalchemy import func, case
+from database.models import Topic, Student, Exercise, student_exercise
+from database.crud import first_or_default
 
 
 def get_unattempted_exercises(session, student_id: int, topic_id: str, difficulty: str):
@@ -58,3 +60,30 @@ def get_highest_completed_level(session: Session, student_id: int, topic_id: int
     # Map back to difficulty levels
     level_map = {1: 'Basic', 2: 'Intermediate', 3: 'Advanced'}
     return level_map.get(highest_level, None)
+
+
+class ExerciseService:
+    @staticmethod
+    def get_by(session: Session, **filters):
+        return first_or_default(session=session, model=Exercise, **filters)
+
+    @staticmethod
+    def recommend_exercise(session: Session, student: Student, topic: Topic):
+        """Recommend an exercise based on user's progress."""
+        level = get_highest_completed_level(session, student.id, topic.id)
+        unattempted_exercises = get_unattempted_exercises(session, student.id, topic.id, level)
+
+        if unattempted_exercises:
+            exercise = random.choice(unattempted_exercises)
+            student.exercises.append(exercise)
+            session.commit()
+            return exercise
+
+        return None
+
+    @staticmethod
+    def get_exercise_by_title_and_topic(session, topic_name: str, exercise_title: str):
+        return (session
+                .query(Exercise).join(Topic)
+                .filter(Topic.name == topic_name, Exercise.title == exercise_title)
+                .one_or_none())
