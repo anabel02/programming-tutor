@@ -125,3 +125,12 @@ class StudentHint(Base):
 
     student = relationship("Student", back_populates="hints_given")
     hint = relationship("ExerciseHint", back_populates="students_received")
+
+
+class Attempt(Base):
+    __tablename__ = 'attempts'
+    id = Column(Integer, primary_key=True)
+    student_id = Column(Integer, ForeignKey('students.id'), nullable=False)
+    exercise_id = Column(Integer, ForeignKey('exercises.id'), nullable=False)
+    submitted_code = Column(String, nullable=False)  # Code submitted by the student
+    submission_date = Column(DateTime, default=datetime.utcnow)  # Timestamp of the attempt

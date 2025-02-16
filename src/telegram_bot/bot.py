@@ -3,7 +3,7 @@ import os
 from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes
 from database.database import SessionLocal
-from database.models import Topic, Exercise, ExerciseHint, Student
+from database.models import Topic, Exercise, ExerciseHint, Student, Attempt
 from typing import List
 from services import StudentService, ExerciseService, TopicService, HintService
 from telegram.helpers import escape_markdown
@@ -38,6 +38,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("solution", self.solution_command))
         self.app.add_handler(CommandHandler("topics", self.list_topics))
         self.app.add_handler(CommandHandler("topic", self.topic_description))
+        self.app.add_handler(CommandHandler("submit", self.submission))
         self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.echo))
         self.app.add_handler(MessageHandler(filters.COMMAND, self.unknown))
 
@@ -208,6 +209,56 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Error fetching topics: {e}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al obtener la descripción del tema :(.")
+
+    async def submission(self, update: Update, context: CallbackContext):
+        args: List[str] = context.args
+
+        # Verifica que se hayan proporcionado los argumentos necesarios
+        if len(args) < 2:
+            await update.message.reply_text("Por favor, proporciona el ID del ejercicio y el código. Ejemplo: /submission 1 'Console.WriteLine(\"Hola mundo\")'")
+            return
+
+        try:
+            # Obtén el ID del ejercicio y el código de los argumentos
+            exercise_id = int(args[0])  # El primer argumento es el ID del ejercicio
+            code = ' '.join(args[1:])  # El resto de los argumentos son el código
+
+            # Obtén el ID del estudiante (usuario de Telegram)
+            user_id = str(update.message.from_user.id)
+
+            # Crea una sesión de base de datos
+            with SessionLocal() as session:
+                # Verifica si el ejercicio existe
+                exercise: Exercise = ExerciseService.get_by(session, id=exercise_id)
+                if not exercise:
+                    await update.message.reply_text(f"El ejercicio con ID {exercise_id} no existe.")
+                    return
+
+                # Verifica si el estudiante existe
+                student: Student = StudentService.first_or_default(session=session, user_id=user_id)
+                if not student:
+                    await update.message.reply_text(f"El estudiante con user_id {user_id} no está registrado.")
+                    return
+
+                # Crea un nuevo Attempt
+                new_attempt = Attempt(
+                    student_id=student.id,
+                    exercise_id=exercise_id,
+                    submitted_code=code,
+                )
+
+                # Guarda el Attempt en la base de datos
+                session.add(new_attempt)
+                session.commit()
+
+                # Confirma al usuario que el intento se ha guardado
+                await update.message.reply_text(f"¡Intento guardado para el ejercicio '{exercise.title}'!")
+
+        except ValueError:
+            await update.message.reply_text("El ID del ejercicio debe ser un número entero.")
+        except Exception as e:
+            logger.error(f"Error al guardar el intento: {e}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al guardar el intento :(.")
 
     def run(self):
         """Start polling for updates."""
