@@ -219,7 +219,7 @@ class TelegramBot:
 
         # Verifica que se hayan proporcionado los argumentos necesarios
         if len(args) < 2:
-            await update.message.reply_text("Por favor, proporciona el ID del ejercicio y el código. Ejemplo: /submission 1 'Console.WriteLine(\"Hola mundo\")'")
+            await update.message.reply_text("Por favor, proporciona el ID del ejercicio y el código. Ejemplo: /submit 1 'Console.WriteLine(\"Hola mundo\")'")
             return
 
         try:
