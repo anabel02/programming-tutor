@@ -6,6 +6,7 @@ from database.database import SessionLocal
 from database.models import Topic, Exercise, ExerciseHint, Student
 from typing import List
 from services import StudentService, ExerciseService, TopicService, HintService
+from telegram.helpers import escape_markdown
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +36,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("exercise", self.exercise))
         self.app.add_handler(CommandHandler("hint", self.hint_command))
         self.app.add_handler(CommandHandler("topics", self.list_topics))
+        self.app.add_handler(CommandHandler("topic", self.topic_description))
         self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.echo))
         self.app.add_handler(MessageHandler(filters.COMMAND, self.unknown))
 
@@ -98,7 +100,7 @@ class TelegramBot:
             await update.message.reply_text("Por favor, indica un tema para recomendar ejercicios.")
             return
 
-        topic_name = args[0]
+        topic_name = ' '.join(args)
 
         try:
             with SessionLocal() as session:
@@ -111,11 +113,13 @@ class TelegramBot:
                 if not topic:
                     await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
                     return
-
                 exercise: Exercise = ExerciseService.recommend_exercise(session, user, topic)
                 if exercise:
+                    escaped_title = escape_markdown(exercise.title, version=2)
+                    escaped_description = escape_markdown(exercise.description, version=2)
+
                     await update.message.reply_text(
-                        f"Aquí tienes un ejercicio para practicar:\n\n*{exercise.id}.{exercise.title}*\n\n{exercise.description}",
+                        f"Aquí tienes un ejercicio para practicar:\n\n*{exercise.id}\. {escaped_title}*\n\n{escaped_description}",
                         parse_mode="MarkdownV2"
                     )
                 else:
@@ -179,6 +183,29 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Error fetching topics: {e}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al obtener la lista de temas :(.")
+
+    async def topic_description(self, update: Update, context: CallbackContext):
+        """Show the description of a given topic"""
+
+        args: List[str] = context.args
+
+        if not args:
+            await update.message.reply_text("Por favor, indica un tema para recomendar ejercicios.")
+            return
+
+        topic_name = ' '.join(args)
+
+        try:
+            with SessionLocal() as session:
+                topic: Topic = TopicService.get_by(session, name=topic_name)
+                if not topic:
+                    await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
+                    return
+
+                await update.message.reply_text(topic.description)
+        except Exception as e:
+            logger.error(f"Error fetching topics: {e}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al obtener la descripción del tema :(.")
 
     def run(self):
         """Start polling for updates."""
