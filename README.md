@@ -4,10 +4,10 @@
 
 - `data/`: Contains data files such as the database and exercise definitions.
 - `src/`: Contains all source code.
-  - `database/`: Database models, CRUD operations, and queries.
+  - `database/`: Database models and CRUD operations.
   - `rag/`: Retrieval-Augmented Generation (RAG) related code.
-  - `telegram_bot/`: Telegram bot implementation and services.
-  - `utils/`: Utility functions.
+  - `services`
+  - `telegram_bot/`: Telegram bot implementation.
 - `.env`: Environment variables.
 - `requirements.txt`: Project dependencies.
 
@@ -31,10 +31,33 @@
         1. Open Telegram and search for the `BotFather`.
         2. Start a chat with `BotFather` and use the `/newbot` command to create a new bot.
         3. Follow the instructions to set up your bot and get the bot token.
-        4. Copy the bot token and add it to your [.env](http://_vscodecontentref_/2) file:
+        4. Copy the bot token and add it to your .env file:
             ```plaintext
             TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
             ```
+    - **DB_URI**: 
+    
+        The `DB_URI` variable is used to define the connection string to your database. Follow these steps to configure it:
+
+        1. Choose a database engine. Make sure you have your preferred database engine installed and configured.
+
+        2. The `DB_URI` variable must follow the SQLAlchemy connection string format. Here are some examples:
+
+            - **PostgreSQL**:
+            ```plaintext
+            postgresql://username:password@localhost/database_name
+            ```
+
+            - **MySQL**:
+            ```plaintext
+            mysql+pymysql://username:password@localhost/database_name
+            ```
+
+        3. Open the `.env` file and add the following line with your connection string:
+            ```plaintext
+            DB_URI=your_database_connection_string_here
+            ```
+
 
 3. Run the main script:
     ```sh
