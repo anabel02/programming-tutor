@@ -35,6 +35,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("ask", self.handle_message))
         self.app.add_handler(CommandHandler("exercise", self.exercise))
         self.app.add_handler(CommandHandler("hint", self.hint_command))
+        self.app.add_handler(CommandHandler("solution", self.solution_command))
         self.app.add_handler(CommandHandler("topics", self.list_topics))
         self.app.add_handler(CommandHandler("topic", self.topic_description))
         self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.echo))
@@ -162,10 +163,11 @@ class TelegramBot:
                 if not exercise.solution:
                     await update.message.reply_text("No tenemos solución para este ejercicio")
                 else:
-                    await update.message.reply_text(exercise.solution)
+                    escaped_solution = escape_markdown(exercise.solution, version=2)
+                    await update.message.reply_text(escaped_solution, parse_mode="MarkdownV2")
         except Exception as e:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
-            await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte una pista :(.")
+            await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte la solución :(.")
 
     async def list_topics(self, update: Update, context: CallbackContext):
         """List all available topics."""
