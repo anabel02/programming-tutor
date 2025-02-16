@@ -14,9 +14,13 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramBot:
-    def __init__(self, ai_tutor, llm):
+    def __init__(self, ai_tutor, llm, student_service: StudentService, exercise_service: ExerciseService,    topic_service: TopicService, hint_service: HintService):
         self.ai_tutor = ai_tutor
         self.llm = llm
+        self.student_service = student_service
+        self.exercise_service = exercise_service
+        self.topic_service = topic_service
+        self.hint_service = hint_service
         self.app = Application.builder().token(self.get_token()).build()
         self.setup_handlers()
 
@@ -67,7 +71,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                user: Student = StudentService.get_or_create_user(session, user_id, chat_id, first_name, last_name)
+                user: Student = self.student_service.get_or_create_user(session, user_id, chat_id, first_name, last_name)
                 await update.message.reply_text(
                     f"¡Hola, {user.first_name}! 👋 Bienvenido al bot. "
                     "Escribe /help para ver lo que puedo hacer."
@@ -106,16 +110,16 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                user: Student = StudentService.first_or_default(session=session, user_id=user_id)
+                user: Student = self.student_service.first_or_default(session=session, user_id=user_id)
                 if not user:
                     await update.message.reply_text("No se encontró al usuario en el sistema.")
                     return
 
-                topic: Topic = TopicService.get_by(session=session, name=topic_name)
+                topic: Topic = self.topic_service.get_by(session=session, name=topic_name)
                 if not topic:
                     await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
                     return
-                exercise: Exercise = ExerciseService.recommend_exercise(session, user, topic)
+                exercise: Exercise = self.exercise_service.recommend_exercise(session, user, topic)
                 if exercise:
                     escaped_title = escape_markdown(exercise.title, version=2)
                     escaped_description = escape_markdown(exercise.description, version=2)
@@ -143,7 +147,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                hint: ExerciseHint = HintService.give_hint(session, user_id, exercise_id)
+                hint: ExerciseHint = self.hint_service.give_hint(session, user_id, exercise_id)
                 await update.message.reply_text(hint)
         except Exception as e:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
@@ -160,7 +164,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                exercise: Exercise = ExerciseService.get_by(session, id=exercise_id)
+                exercise: Exercise = self.exercise_service.get_by(session, id=exercise_id)
                 if not exercise.solution:
                     await update.message.reply_text("No tenemos solución para este ejercicio")
                 else:
@@ -174,7 +178,7 @@ class TelegramBot:
         """List all available topics."""
         try:
             with SessionLocal() as session:
-                topics = TopicService.get_all(session)
+                topics = self.topic_service.get_all(session)
                 if not topics:
                     await update.message.reply_text("No hay temas disponibles en este momento.")
                     return
@@ -200,7 +204,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                topic: Topic = TopicService.get_by(session, name=topic_name)
+                topic: Topic = self.topic_service.get_by(session, name=topic_name)
                 if not topic:
                     await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
                     return
@@ -229,13 +233,13 @@ class TelegramBot:
             # Crea una sesión de base de datos
             with SessionLocal() as session:
                 # Verifica si el ejercicio existe
-                exercise: Exercise = ExerciseService.get_by(session, id=exercise_id)
+                exercise: Exercise = self.exercise_service.get_by(session, id=exercise_id)
                 if not exercise:
                     await update.message.reply_text(f"El ejercicio con ID {exercise_id} no existe.")
                     return
 
                 # Verifica si el estudiante existe
-                student: Student = StudentService.first_or_default(session=session, user_id=user_id)
+                student: Student = self.student_service.first_or_default(session=session, user_id=user_id)
                 if not student:
                     await update.message.reply_text(f"El estudiante con user_id {user_id} no está registrado.")
                     return
