@@ -84,16 +84,13 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                # Verifica si el usuario ya existe en la base de datos
                 user = self.student_service.first_or_default(session, user_id=user_id)
                 if user:
-                    # Si el usuario existe, saluda
                     await update.message.reply_text(
                         f"¡Hola, {user.first_name}! 👋 Bienvenido de nuevo al bot. "
                         "Escribe /help para ver lo que puedo hacer."
                     )
                 else:
-                    # Si el usuario no existe, solicita su nombre
                     await update.message.reply_text(
                         "¡Hola! 👋 Parece que es la primera vez que usas este bot. "
                         "Por favor, ingresa tu nombre:"

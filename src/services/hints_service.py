@@ -2,8 +2,10 @@ from database.models import Topic, Exercise, StudentHint, Student
 
 
 class HintService:
-    @staticmethod
-    def give_hint(session, user_id: str, exercise_id: str):
+    def __init__(self):
+        pass
+
+    def give_hint(self, session, user_id: str, exercise_id: str):
         # Obtener el ejercicio
         exercise = (
             session.query(Exercise)
