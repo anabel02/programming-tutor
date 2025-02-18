@@ -69,12 +69,24 @@ class ExerciseService:
         level_map = {1: 'Basic', 2: 'Intermediate', 3: 'Advanced'}
         return level_map.get(level, None)
 
-    def recommend_exercise(self, session: Session, student: Student, topic: Topic) -> Exercise:
+    def recommend_exercise(self, session: Session, student: Student, topic: Topic, exercises_count=5) -> Exercise:
         level = self.get_highest_completed_level(session, student.id, topic.id)
+
+        attempted_exercises_subquery = self._get_attempted_exercises_subquery(session, student.id)
+
+        completed_exercises_count = session.query(Exercise).filter(
+            Exercise.topic_id == topic.id,
+            Exercise.difficulty == level,
+            Exercise.id.in_(attempted_exercises_subquery)
+        ).count()
+
+        if completed_exercises_count > exercises_count:
+            index = self.DIFFICULTY_LEVELS.index(level)
+            level = self.DIFFICULTY_LEVELS[index + 1] if index < self.DIFFICULTY_LEVELS else 'Advanced'
         unattempted_exercises = self.get_unattempted_exercises(session, student.id, topic.id, level)
 
         if unattempted_exercises:
-            exercise = random.choice(unattempted_exercises)
+            exercise = unattempted_exercises[0]
             student.exercises.append(exercise)
             session.commit()
             return exercise
