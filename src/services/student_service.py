@@ -15,5 +15,13 @@ class StudentService:
         return user
 
     @staticmethod
+    def create_user(session: Session, user_id: str, chat_id: int, first_name: str, last_name: str) -> Student:
+        """Create a user in the database."""
+        user = Student(user_id=user_id, chat_id=chat_id, first_name=first_name, last_name=last_name)
+        session.add(user)
+        session.commit()
+        return user
+
+    @staticmethod
     def first_or_default(session: Session, **filters):
         return first_or_default(session=session, model=Student, **filters)
