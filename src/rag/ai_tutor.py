@@ -23,9 +23,43 @@ class RAG:
             ]
         )
 
+        self.llm = llm
+
         # Create the RAG chain
         self.chain = create_stuff_documents_chain(llm, self.prompt)
         self.rag_chain = create_retrieval_chain(retriever, self.chain)
+
+    def clean_query_with_llm(self, question: str) -> str:
+        """
+        Use the LLM to clean and normalize the user's question.
+
+        Args:
+            question (str): The user's question.
+
+        Returns:
+            str: The cleaned and normalized question.
+        """
+        prompt = f"""
+        You are a helpful assistant that cleans and normalizes user queries in spanish for a RAG system.
+        Your task is to reformat the following query to make it more suitable for retrieval and generation:
+        - Correct any spelling or grammatical errors.
+        - Remove unnecessary words or phrases.
+        - Clarify ambiguous terms.
+        - Ensure the query is concise and clear.
+
+        ----
+        Example:
+        query : qué es un array de direcciones
+        cleaned query: array de direcciones
+
+        ----
+
+        Original query: "{question}"
+
+        Cleaned query:
+        """
+        clean_query = self.llm.invoke(prompt)
+        return clean_query.content.strip()
 
     def answer_question(self, question: str):
         """
@@ -37,7 +71,8 @@ class RAG:
         Returns:
             str: The response from the RAG chain.
         """
-        response = self.rag_chain.invoke({"input": question})
+        clean_question = self.clean_query_with_llm(question)
+        response = self.rag_chain.invoke({"input": clean_question})
         return response
 
 

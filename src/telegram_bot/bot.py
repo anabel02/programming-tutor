@@ -1,7 +1,8 @@
 import logging
 import os
 from telegram import Update
-from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes
+from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes, ConversationHandler
+from telegram.constants import ParseMode
 from database.database import SessionLocal
 from database.models import Topic, Exercise, ExerciseHint, Student, Attempt
 from typing import List
@@ -12,11 +13,18 @@ from telegram.helpers import escape_markdown
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Estados de la conversación de start
+GET_NAME, GET_LASTNAME = range(2)
+
 
 class TelegramBot:
-    def __init__(self, ai_tutor, llm):
+    def __init__(self, ai_tutor, llm, student_service: StudentService, exercise_service: ExerciseService,    topic_service: TopicService, hint_service: HintService):
         self.ai_tutor = ai_tutor
         self.llm = llm
+        self.student_service = student_service
+        self.exercise_service = exercise_service
+        self.topic_service = topic_service
+        self.hint_service = hint_service
         self.app = Application.builder().token(self.get_token()).build()
         self.setup_handlers()
 
@@ -30,7 +38,15 @@ class TelegramBot:
 
     def setup_handlers(self):
         """Set up command and message handlers."""
-        self.app.add_handler(CommandHandler("start", self.start))
+        start_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', self.start)],
+            states={
+                GET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_name)],
+                GET_LASTNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_lastname)],
+            },
+            fallbacks=[CommandHandler('cancel', self.cancel)],
+        )
+        self.app.add_handler(start_handler)
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CommandHandler("ask", self.handle_message))
         self.app.add_handler(CommandHandler("exercise", self.exercise))
@@ -59,22 +75,77 @@ class TelegramBot:
             logger.error(e)
 
     async def start(self, update: Update, context: CallbackContext):
+        """
+        Maneja el comando /start. Si el usuario no está en la base de datos,
+        solicita su nombre y apellidos.
+        """
         query = update.message
         user_id = str(query.from_user.id)
-        chat_id = query.chat_id
-        first_name = query.from_user.first_name
-        last_name = query.from_user.last_name
 
         try:
             with SessionLocal() as session:
-                user: Student = StudentService.get_or_create_user(session, user_id, chat_id, first_name, last_name)
+                # Verifica si el usuario ya existe en la base de datos
+                user = self.student_service.first_or_default(session, user_id=user_id)
+                if user:
+                    # Si el usuario existe, saluda
+                    await update.message.reply_text(
+                        f"¡Hola, {user.first_name}! 👋 Bienvenido de nuevo al bot. "
+                        "Escribe /help para ver lo que puedo hacer."
+                    )
+                else:
+                    # Si el usuario no existe, solicita su nombre
+                    await update.message.reply_text(
+                        "¡Hola! 👋 Parece que es la primera vez que usas este bot. "
+                        "Por favor, ingresa tu nombre:"
+                    )
+                    return GET_NAME  # Pasa al estado GET_NAME
+        except Exception as e:
+            logger.error(f"Error al verificar el usuario: {e}")
+            await update.message.reply_text("Ocurrió un error al procesar tu solicitud :(.")
+
+    async def get_name(self, update: Update, context: CallbackContext):
+        """
+        Captura el nombre del usuario y solicita sus apellidos.
+        """
+        first_name = update.message.text
+
+        # Guarda el nombre en el contexto de la conversación
+        context.user_data['first_name'] = first_name
+
+        await update.message.reply_text(
+            f"Gracias, {first_name}. Ahora, por favor, ingresa tus apellidos:"
+        )
+        return GET_LASTNAME  # Pasa al estado GET_LASTNAME
+
+    async def get_lastname(self, update: Update, context: CallbackContext):
+        """
+        Captura los apellidos del usuario y lo registra en la base de datos.
+        """
+        user_id = str(update.message.from_user.id)
+        chat_id = update.message.chat_id
+        last_name = update.message.text
+        first_name = context.user_data['first_name']  # Recupera el nombre del contexto
+
+        try:
+            with SessionLocal() as session:
+                # Crea el usuario en la base de datos
+                user = self.student_service.create_user(session, user_id, chat_id, first_name, last_name)
                 await update.message.reply_text(
-                    f"¡Hola, {user.first_name}! 👋 Bienvenido al bot. "
+                    f"¡Gracias, {user.first_name} {user.last_name}! 🎉 Ahora estás registrado en el sistema. "
                     "Escribe /help para ver lo que puedo hacer."
                 )
+                return ConversationHandler.END  # Termina la conversación
         except Exception as e:
-            logger.error(f"Error adding user: {e}")
-            await update.message.reply_text("Ocurrió un error mientras intentaba añadirte al sistema :(.")
+            logger.error(f"Error al registrar el usuario: {e}")
+            await update.message.reply_text("Ocurrió un error al registrarte en el sistema :(.")
+            return ConversationHandler.END  # Termina la conversación en caso de error
+
+    async def cancel(self, update: Update, context: CallbackContext):
+        """
+        Cancela la conversación.
+        """
+        await update.message.reply_text("Registro cancelado.")
+        return ConversationHandler.END
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Provide help information to the user."""
@@ -106,16 +177,16 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                user: Student = StudentService.first_or_default(session=session, user_id=user_id)
+                user: Student = self.student_service.first_or_default(session=session, user_id=user_id)
                 if not user:
                     await update.message.reply_text("No se encontró al usuario en el sistema.")
                     return
 
-                topic: Topic = TopicService.get_by(session=session, name=topic_name)
+                topic: Topic = self.topic_service.get_by(session=session, name=topic_name)
                 if not topic:
                     await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
                     return
-                exercise: Exercise = ExerciseService.recommend_exercise(session, user, topic)
+                exercise: Exercise = self.exercise_service.recommend_exercise(session, user, topic)
                 if exercise:
                     escaped_title = escape_markdown(exercise.title, version=2)
                     escaped_description = escape_markdown(exercise.description, version=2)
@@ -143,14 +214,17 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                hint: ExerciseHint = HintService.give_hint(session, user_id, exercise_id)
+                hint: ExerciseHint = self.hint_service.give_hint(session, user_id, exercise_id)
                 await update.message.reply_text(hint)
         except Exception as e:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte una pista :(.")
 
     async def solution_command(self, update: Update, context: CallbackContext):
-        args: List[str] = context.args
+        """
+        Proporciona la solución de un ejercicio, formateando correctamente el código C# y el texto.
+        """
+        args = context.args
 
         if not args:
             await update.message.reply_text("Por favor, indica el número del ejercicio para darte la solución.")
@@ -160,21 +234,45 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                exercise: Exercise = ExerciseService.get_by(session, id=exercise_id)
+                exercise: Exercise = self.exercise_service.get_by(session, id=exercise_id)
                 if not exercise.solution:
-                    await update.message.reply_text("No tenemos solución para este ejercicio")
-                else:
-                    escaped_solution = escape_markdown(exercise.solution, version=2)
-                    await update.message.reply_text(escaped_solution, parse_mode="MarkdownV2")
+                    await update.message.reply_text("No tenemos solución para este ejercicio.")
+                    return
+
+                formatted_solution = self.format_solution(exercise.solution)
+                await update.message.reply_text(formatted_solution, parse_mode=ParseMode.MARKDOWN_V2)
         except Exception as e:
-            logger.error(f"Error recommending exercise: {e}", exc_info=True)
-            await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte la solución :(.")
+            logger.error(f"Error al obtener la solución: {e}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error mientras intentaba darte la solución :(.")
+
+    def format_solution(self, solution: str) -> str:
+        """
+        Formatea la solución para que el código C# y el texto se muestren correctamente en MarkdownV2.
+
+        Args:
+            solution (str): La solución del ejercicio, que puede contener código C# y texto.
+
+        Returns:
+            str: La solución formateada en MarkdownV2.
+        """
+        parts = solution.split("```")
+        formatted_parts = []
+
+        for i, part in enumerate(parts):
+            if i % 2 == 0:
+                # Es texto, escapa los caracteres especiales de MarkdownV2
+                formatted_parts.append(escape_markdown(part, version=2))
+            else:
+                # Es código C#, envuélvelo en un bloque de código
+                formatted_parts.append(f"```csharp{part[6:]}```")
+
+        return "".join(formatted_parts)
 
     async def list_topics(self, update: Update, context: CallbackContext):
         """List all available topics."""
         try:
             with SessionLocal() as session:
-                topics = TopicService.get_all(session)
+                topics = self.topic_service.get_all(session)
                 if not topics:
                     await update.message.reply_text("No hay temas disponibles en este momento.")
                     return
@@ -200,7 +298,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                topic: Topic = TopicService.get_by(session, name=topic_name)
+                topic: Topic = self.topic_service.get_by(session, name=topic_name)
                 if not topic:
                     await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
                     return
@@ -215,7 +313,7 @@ class TelegramBot:
 
         # Verifica que se hayan proporcionado los argumentos necesarios
         if len(args) < 2:
-            await update.message.reply_text("Por favor, proporciona el ID del ejercicio y el código. Ejemplo: /submission 1 'Console.WriteLine(\"Hola mundo\")'")
+            await update.message.reply_text("Por favor, proporciona el ID del ejercicio y el código. Ejemplo: /submit 1 'Console.WriteLine(\"Hola mundo\")'")
             return
 
         try:
@@ -229,13 +327,13 @@ class TelegramBot:
             # Crea una sesión de base de datos
             with SessionLocal() as session:
                 # Verifica si el ejercicio existe
-                exercise: Exercise = ExerciseService.get_by(session, id=exercise_id)
+                exercise: Exercise = self.exercise_service.get_by(session, id=exercise_id)
                 if not exercise:
                     await update.message.reply_text(f"El ejercicio con ID {exercise_id} no existe.")
                     return
 
                 # Verifica si el estudiante existe
-                student: Student = StudentService.first_or_default(session=session, user_id=user_id)
+                student: Student = self.student_service.first_or_default(session=session, user_id=user_id)
                 if not student:
                     await update.message.reply_text(f"El estudiante con user_id {user_id} no está registrado.")
                     return
