@@ -30,7 +30,7 @@ def upgrade() -> None:
     op.create_table('student_exercise',
     sa.Column('student_id', sa.Integer(), nullable=False),
     sa.Column('exercise_id', sa.Integer(), nullable=False),
-    sa.Column('status', sa.Enum('In Progress', 'Submitted', 'Completed', name='exercise_status_2'), nullable=True),
+    sa.Column('status', sa.Enum('In Progress', 'Submitted', 'Completed', name='exercise_status'), nullable=True),
     sa.ForeignKeyConstraint(['exercise_id'], ['exercises.id'], ),
     sa.ForeignKeyConstraint(['student_id'], ['students.id'], ),
     sa.PrimaryKeyConstraint('student_id', 'exercise_id')
