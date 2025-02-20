@@ -186,11 +186,11 @@ class TelegramBot:
                 exercise: Exercise = self.exercise_service.recommend_exercise(session, user, topic)
                 if exercise:
                     escaped_title = escape_markdown(exercise.title, version=2)
-                    escaped_description = escape_markdown(exercise.description, version=2)
+                    formatted_exercise = self.format_solution(exercise.description)
 
                     await update.message.reply_text(
-                        f"Aquí tienes un ejercicio para practicar:\n\n*{exercise.id}\. {escaped_title}*\n\n{escaped_description}",
-                        parse_mode="MarkdownV2"
+                        f"*{exercise.id}\. {escaped_title}*\n\n{formatted_exercise}",
+                        parse_mode=ParseMode.MARKDOWN_V2
                     )
                 else:
                     await update.message.reply_text("No hay ejercicios disponibles para tu nivel. ¡Buen trabajo!")
@@ -243,15 +243,6 @@ class TelegramBot:
             await update.message.reply_text("Ocurrió un error mientras intentaba darte la solución :(.")
 
     def format_solution(self, solution: str) -> str:
-        """
-        Formatea la solución para que el código C# y el texto se muestren correctamente en MarkdownV2.
-
-        Args:
-            solution (str): La solución del ejercicio, que puede contener código C# y texto.
-
-        Returns:
-            str: La solución formateada en MarkdownV2.
-        """
         parts = solution.split("```")
         formatted_parts = []
 
@@ -260,8 +251,8 @@ class TelegramBot:
                 # Es texto, escapa los caracteres especiales de MarkdownV2
                 formatted_parts.append(escape_markdown(part, version=2))
             else:
-                # Es código C#, envuélvelo en un bloque de código
-                formatted_parts.append(f"```csharp{part[6:]}```")
+                # Es código, envuélvelo en un bloque de código
+                formatted_parts.append(f"```{part}```")
 
         return "".join(formatted_parts)
 

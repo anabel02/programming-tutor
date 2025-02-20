@@ -1,6 +1,5 @@
-import random
 from sqlalchemy.orm import Session
-from sqlalchemy import func, case
+from sqlalchemy import func, case, exists
 from database.models import Topic, Student, Exercise, student_exercise
 from database.crud import first_or_default
 
@@ -26,12 +25,31 @@ class ExerciseService:
                 Exercise.difficulty.in_(valid_difficulties),
                 ~Exercise.id.in_(attempted_exercises_subquery)
             )
+            .order_by(Exercise.id.asc())
         )
 
         return query.all()
 
+    def get_first_unattempted_exercise(self, session: Session, student_id: int, topic_id: str, difficulty: str = 'Basic') -> Exercise | None:
+        valid_difficulties = self._get_valid_difficulties(difficulty)
+        attempted_exercises_subquery = self._get_attempted_exercises_subquery(session, student_id)
+
+        return (
+            session.query(Exercise)
+            .join(Topic)
+            .filter(
+                Topic.id == topic_id,
+                Exercise.difficulty.in_(valid_difficulties),
+                ~Exercise.id.in_(attempted_exercises_subquery)
+            )
+            .order_by(Exercise.id.asc())
+            .first()
+        )
+
     def _get_valid_difficulties(self, difficulty: str) -> list[str]:
-        return self.DIFFICULTY_LEVELS if difficulty is None else self.DIFFICULTY_LEVELS[self.DIFFICULTY_LEVELS.index(difficulty):]
+        if difficulty is None or difficulty not in self.DIFFICULTY_LEVELS:
+            return self.DIFFICULTY_LEVELS
+        return self.DIFFICULTY_LEVELS[self.DIFFICULTY_LEVELS.index(difficulty):]
 
     def _get_attempted_exercises_subquery(self, session: Session, student_id: int):
         return (
@@ -69,24 +87,23 @@ class ExerciseService:
         level_map = {1: 'Basic', 2: 'Intermediate', 3: 'Advanced'}
         return level_map.get(level, None)
 
+    def _has_completed_sufficient_exercises(self, session: Session, student_id: int, topic_id: int, difficulty: str, exercises_count: int) -> bool:
+        return session.query(
+            exists().where(
+                (Exercise.topic_id == topic_id) &
+                (Exercise.difficulty == difficulty) &
+                (Exercise.id.in_(self._get_attempted_exercises_subquery(session, student_id)))
+            )
+        ).scalar()
+
     def recommend_exercise(self, session: Session, student: Student, topic: Topic, exercises_count=5) -> Exercise:
         level = self.get_highest_completed_level(session, student.id, topic.id)
 
-        attempted_exercises_subquery = self._get_attempted_exercises_subquery(session, student.id)
-
-        completed_exercises_count = session.query(Exercise).filter(
-            Exercise.topic_id == topic.id,
-            Exercise.difficulty == level,
-            Exercise.id.in_(attempted_exercises_subquery)
-        ).count()
-
-        if completed_exercises_count > exercises_count:
+        if self._has_completed_sufficient_exercises(session, student.id, topic.id, level, exercises_count):
             index = self.DIFFICULTY_LEVELS.index(level)
             level = self.DIFFICULTY_LEVELS[index + 1] if index < self.DIFFICULTY_LEVELS else 'Advanced'
-        unattempted_exercises = self.get_unattempted_exercises(session, student.id, topic.id, level)
 
-        if unattempted_exercises:
-            exercise = unattempted_exercises[0]
+        if exercise := self.get_first_unattempted_exercise(session, student.id, topic.id, level):
             student.exercises.append(exercise)
             session.commit()
             return exercise
