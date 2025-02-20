@@ -211,7 +211,7 @@ class TelegramBot:
 
         try:
             with SessionLocal() as session:
-                hint: ExerciseHint = self.hint_service.give_hint(session, user_id, exercise_id)
+                hint: str = self.hint_service.give_hint(session, user_id, exercise_id)
                 await update.message.reply_text(hint)
         except Exception as e:
             logger.error(f"Error recommending exercise: {e}", exc_info=True)
