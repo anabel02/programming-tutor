@@ -9,8 +9,8 @@ load_dotenv()
 
 def create_bot():
     student_service = StudentService()
-    exercise_service = ExerciseService()
     topic_service = TopicService()
+    exercise_service = ExerciseService(student_service, topic_service)
     hint_service = HintService()
     llm = get_gemini_llm()
     retriever = get_retriever()

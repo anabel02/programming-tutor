@@ -4,10 +4,12 @@ from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes, ConversationHandler
 from telegram.constants import ParseMode
 from database.database import SessionLocal
-from database.models import Topic, Exercise, Student, Attempt
+from database.models import Topic, Exercise, Student, Attempt, ExerciseHint
 from typing import List
-from services import StudentService, ExerciseService, TopicService, HintService
+from services import StudentService, ExerciseService, TopicService, HintService, ServiceResult
 from telegram.helpers import escape_markdown
+from http import HTTPStatus
+from telegram_bot.utils import format_solution
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -27,6 +29,10 @@ class TelegramBot:
         self.hint_service = hint_service
         self.app = Application.builder().token(self.get_token()).build()
         self.setup_handlers()
+
+    def run(self):
+        """Start polling for updates."""
+        self.app.run_polling()
 
     def get_token(self) -> str:
         """Validate and return the Telegram bot token."""
@@ -77,23 +83,23 @@ class TelegramBot:
     async def start(self, update: Update, context: CallbackContext):
         user_id = str(update.message.from_user.id)
 
-        try:
-            with SessionLocal() as session:
-                user = self.student_service.first_or_default(session, user_id=user_id)
-                if user:
-                    await update.message.reply_text(
-                        f"¡Hola, {user.first_name}! 👋 Bienvenido de nuevo al bot. "
-                        "Escribe /help para ver lo que puedo hacer."
-                    )
-                else:
-                    await update.message.reply_text(
-                        "¡Hola! 👋 Parece que es la primera vez que usas este bot. "
-                        "Por favor, ingresa tu nombre:"
-                    )
-                    return GET_NAME  # Pasa al estado GET_NAME
-        except Exception as e:
-            logger.error(f"Error al verificar el usuario: {e}")
+        result: ServiceResult[Student] = self.student_service.get_user(user_id=user_id)
+        if result.is_success:
+            user: Student = result.item
+            await update.message.reply_text(
+                f"¡Hola, {user.first_name}! 👋 Bienvenido de nuevo al bot. "
+                "Escribe /help para ver lo que puedo hacer."
+            )
+            return ConversationHandler.END
+        elif result.error_code == HTTPStatus.NOT_FOUND:
+            await update.message.reply_text(
+                "¡Hola! 👋 Parece que es la primera vez que usas este bot. "
+                "Por favor, ingresa tu nombre:"
+            )
+            return GET_NAME  # Pasa al estado GET_NAME
+        else:
             await update.message.reply_text("Ocurrió un error al procesar tu solicitud :(.")
+            return ConversationHandler.END
 
     async def get_name(self, update: Update, context: CallbackContext):
         first_name = update.message.text
@@ -112,17 +118,16 @@ class TelegramBot:
         last_name = update.message.text
         first_name = context.user_data['first_name']  # Recupera el nombre del contexto
 
-        try:
-            with SessionLocal() as session:
-                # Crea el usuario en la base de datos
-                user = self.student_service.create_user(session, user_id, chat_id, first_name, last_name)
-                await update.message.reply_text(
+        result: ServiceResult[Student] = self.student_service.create_user(user_id, chat_id, first_name, last_name)
+        if result.is_success:
+            user = result.item
+            await update.message.reply_text(
                     f"¡Gracias, {user.first_name} {user.last_name}! 🎉 Ahora estás registrado en el sistema. "
                     "Escribe /help para ver lo que puedo hacer."
                 )
-                return ConversationHandler.END  # Termina la conversación
-        except Exception as e:
-            logger.error(f"Error al registrar el usuario: {e}")
+            return ConversationHandler.END  # Termina la conversación
+        else:
+            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al registrarte en el sistema :(.")
             return ConversationHandler.END  # Termina la conversación en caso de error
 
@@ -143,11 +148,42 @@ class TelegramBot:
             "/solution [número del ejercicio] - Solicita la solución del ejercicio"
         )
 
-    async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
+    async def list_topics(self, update: Update, context: CallbackContext):
+        result: ServiceResult[List[Topic]] = self.topic_service.get_all()
 
-    async def unknown(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lo siento, no entiendo ese comando. 😕")
+        if not result.is_success:
+            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al obtener la lista de temas :(.")
+            return
+
+        topics: List[Topic] = result.item
+        if not topics:
+            await update.message.reply_text("No hay temas disponibles en este momento.")
+        else:
+            topics_list = "\n".join([f"- {topic.name}" for topic in topics])
+            await update.message.reply_text(
+                f"Estos son los temas disponibles:\n{topics_list}"
+            )
+
+    async def topic_description(self, update: Update, context: CallbackContext):
+        args: List[str] = context.args
+
+        if not args:
+            await update.message.reply_text("Por favor, indica un tema para recomendar ejercicios.")
+            return
+
+        topic_name = ' '.join(args)
+
+        result: ServiceResult[Topic] = self.topic_service.get(name=topic_name)
+
+        if result.is_success:
+            topic: Topic = result.item
+            await update.message.reply_text(topic.description)
+        elif result.error_code == HTTPStatus.NOT_FOUND:
+            await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
+        else:
+            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al obtener la descripción del tema :(.")
 
     async def exercise(self, update: Update, context: CallbackContext):
         user_id = str(update.effective_user.id)
@@ -159,30 +195,23 @@ class TelegramBot:
 
         topic_name = ' '.join(args)
 
-        try:
-            with SessionLocal() as session:
-                user: Student = self.student_service.first_or_default(session=session, user_id=user_id)
-                if not user:
-                    await update.message.reply_text("No se encontró al usuario en el sistema.")
-                    return
+        result: ServiceResult[Exercise] = self.exercise_service.recommend_exercise(user_id, topic_name)
 
-                topic: Topic = self.topic_service.get_by(session=session, name=topic_name)
-                if not topic:
-                    await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
-                    return
-                exercise: Exercise = self.exercise_service.recommend_exercise(session, user, topic)
-                if exercise:
-                    escaped_title = escape_markdown(exercise.title, version=2)
-                    formatted_exercise = self.format_solution(exercise.description)
+        if result.is_success:
+            exercise: Exercise = result.item
+            escaped_title = escape_markdown(exercise.title, version=2)
+            formatted_exercise = self.format_solution(exercise.description)
 
-                    await update.message.reply_text(
-                        f"*{exercise.id}\. {escaped_title}*\n\n{formatted_exercise}",
-                        parse_mode=ParseMode.MARKDOWN_V2
-                    )
-                else:
-                    await update.message.reply_text("No hay ejercicios disponibles para tu nivel. ¡Buen trabajo!")
-        except Exception as e:
-            logger.error(f"Error recommending exercise: {e}", exc_info=True)
+            await update.message.reply_text(
+                f"*{exercise.id}\. {escaped_title}*\n\n{formatted_exercise}",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+        elif result.error_code == HTTPStatus.NOT_FOUND:
+            await update.message.reply_text("No hay ejercicios disponibles para tu nivel. ¡Buen trabajo!")
+        elif result.error_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.error_message)
+        else:
+            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba recomendarte un ejercicio :(.")
 
     async def hint_command(self, update: Update, context: CallbackContext):
@@ -193,21 +222,20 @@ class TelegramBot:
             return
 
         exercise_id = args[0]
-
         user_id = str(update.effective_user.id)
 
-        try:
-            with SessionLocal() as session:
-                hint: str = self.hint_service.give_hint(session, user_id, exercise_id)
-                await update.message.reply_text(hint)
-        except Exception as e:
-            logger.error(f"Error recommending exercise: {e}", exc_info=True)
+        result: ServiceResult[ExerciseHint] = self.hint_service.give_hint(user_id, exercise_id)
+
+        if result.is_success:
+            hint: ExerciseHint = result.item
+            await update.message.reply_text(hint.hint_text)
+        elif result.error_code == HTTPStatus.NOT_FOUND or result.error_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.error_message)
+        else:
+            logger.error(f"Error recommending hint: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte una pista :(.")
 
     async def solution_command(self, update: Update, context: CallbackContext):
-        """
-        Proporciona la solución de un ejercicio, formateando correctamente el código C# y el texto.
-        """
         args = context.args
 
         if not args:
@@ -215,73 +243,18 @@ class TelegramBot:
             return
 
         exercise_id = args[0]
+        user_id = str(update.effective_user.id)
 
-        try:
-            with SessionLocal() as session:
-                exercise: Exercise = self.exercise_service.get_by(session, id=exercise_id)
-                if not exercise.solution:
-                    await update.message.reply_text("No tenemos solución para este ejercicio.")
-                    return
+        result: ServiceResult[str] = self.exercise_service.get_solution(user_id, exercise_id)
 
-                formatted_solution = self.format_solution(exercise.solution)
-                await update.message.reply_text(formatted_solution, parse_mode=ParseMode.MARKDOWN_V2)
-        except Exception as e:
-            logger.error(f"Error al obtener la solución: {e}", exc_info=True)
+        if result.is_success:
+            formatted_solution = format_solution(result.item)
+            await update.message.reply_text(formatted_solution, parse_mode=ParseMode.MARKDOWN_V2)
+        elif result.error_code == HTTPStatus.NOT_FOUND or result.error_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.error_message)
+        else:
+            logger.error(f"Error al obtener la solución: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba darte la solución :(.")
-
-    def format_solution(self, solution: str) -> str:
-        parts = solution.split("```")
-        formatted_parts = []
-
-        for i, part in enumerate(parts):
-            if i % 2 == 0:
-                # Es texto, escapa los caracteres especiales de MarkdownV2
-                formatted_parts.append(escape_markdown(part, version=2))
-            else:
-                # Es código, envuélvelo en un bloque de código
-                formatted_parts.append(f"```{part}```")
-
-        return "".join(formatted_parts)
-
-    async def list_topics(self, update: Update, context: CallbackContext):
-        """List all available topics."""
-        try:
-            with SessionLocal() as session:
-                topics = self.topic_service.get_all(session)
-                if not topics:
-                    await update.message.reply_text("No hay temas disponibles en este momento.")
-                    return
-
-                topics_list = "\n".join([f"- {topic.name}" for topic in topics])
-                await update.message.reply_text(
-                    f"Estos son los temas disponibles:\n{topics_list}"
-                )
-        except Exception as e:
-            logger.error(f"Error fetching topics: {e}", exc_info=True)
-            await update.message.reply_text("Ocurrió un error al obtener la lista de temas :(.")
-
-    async def topic_description(self, update: Update, context: CallbackContext):
-        """Show the description of a given topic"""
-
-        args: List[str] = context.args
-
-        if not args:
-            await update.message.reply_text("Por favor, indica un tema para recomendar ejercicios.")
-            return
-
-        topic_name = ' '.join(args)
-
-        try:
-            with SessionLocal() as session:
-                topic: Topic = self.topic_service.get_by(session, name=topic_name)
-                if not topic:
-                    await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
-                    return
-
-                await update.message.reply_text(topic.description)
-        except Exception as e:
-            logger.error(f"Error fetching topics: {e}", exc_info=True)
-            await update.message.reply_text("Ocurrió un error al obtener la descripción del tema :(.")
 
     async def submission(self, update: Update, context: CallbackContext):
         args: List[str] = context.args
@@ -290,12 +263,11 @@ class TelegramBot:
             await update.message.reply_text("Por favor, proporciona el número del ejercicio y el código.")
             return
 
+        exercise_id = int(args[0])
+        code = ' '.join(args[1:])
+        user_id = str(update.message.from_user.id)
+
         try:
-            exercise_id = int(args[0])
-            code = ' '.join(args[1:])
-
-            user_id = str(update.message.from_user.id)
-
             with SessionLocal() as session:
                 exercise: Exercise = self.exercise_service.get_by(session, id=exercise_id)
                 if not exercise:
@@ -328,6 +300,8 @@ class TelegramBot:
             logger.error(f"Error al guardar el intento: {e}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al guardar el intento :(.")
 
-    def run(self):
-        """Start polling for updates."""
-        self.app.run_polling()
+    async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
+
+    async def unknown(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lo siento, no entiendo ese comando. 😕")
