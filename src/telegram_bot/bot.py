@@ -75,12 +75,7 @@ class TelegramBot:
             logger.error(e)
 
     async def start(self, update: Update, context: CallbackContext):
-        """
-        Maneja el comando /start. Si el usuario no está en la base de datos,
-        solicita su nombre y apellidos.
-        """
-        query = update.message
-        user_id = str(query.from_user.id)
+        user_id = str(update.message.from_user.id)
 
         try:
             with SessionLocal() as session:
@@ -101,9 +96,6 @@ class TelegramBot:
             await update.message.reply_text("Ocurrió un error al procesar tu solicitud :(.")
 
     async def get_name(self, update: Update, context: CallbackContext):
-        """
-        Captura el nombre del usuario y solicita sus apellidos.
-        """
         first_name = update.message.text
 
         # Guarda el nombre en el contexto de la conversación
@@ -115,9 +107,6 @@ class TelegramBot:
         return GET_LASTNAME  # Pasa al estado GET_LASTNAME
 
     async def get_lastname(self, update: Update, context: CallbackContext):
-        """
-        Captura los apellidos del usuario y lo registra en la base de datos.
-        """
         user_id = str(update.message.from_user.id)
         chat_id = update.message.chat_id
         last_name = update.message.text
@@ -138,22 +127,20 @@ class TelegramBot:
             return ConversationHandler.END  # Termina la conversación en caso de error
 
     async def cancel(self, update: Update, context: CallbackContext):
-        """
-        Cancela la conversación.
-        """
         await update.message.reply_text("Registro cancelado.")
         return ConversationHandler.END
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Provide help information to the user."""
         await update.message.reply_text(
             "Estos son los comandos que puedes usar:\n"
             "/start - Inicia la interacción con el bot\n"
             "/help - Obtén ayuda sobre cómo usar el bot\n"
             "/topics - Lista todos los temas\n"
+            "/topic [tema] - Muestra una descripción del tema\n"
             "/ask [pregunta] - Haz una pregunta al bot\n"
             "/exercise [tema] - Solicita un ejercicio de un tema específico\n"
-            "/hint [número del ejercicio] - Solicita una pista para resolver el ejercicio"
+            "/hint [número del ejercicio] - Solicita una pista para resolver el ejercicio\n"
+            "/solution [número del ejercicio] - Solicita la solución del ejercicio"
         )
 
     async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
