@@ -3,3 +3,4 @@ from services.exercise_service import ExerciseService
 from services.topic_service import TopicService
 from services.hints_service import HintService
 from services.service_result import ServiceResult
+from services.submission_service import SubmissionService

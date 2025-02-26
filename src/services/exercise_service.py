@@ -2,8 +2,6 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, case, exists
 from database.models import Topic, Student, Exercise, student_exercise
 from database.crud import first_or_default
-from services.topic_service import TopicService
-from services.student_service import StudentService
 from services.service_result import ServiceResult
 from database.database import SessionLocal
 from http import HTTPStatus
@@ -12,9 +10,8 @@ from http import HTTPStatus
 class ExerciseService:
     DIFFICULTY_LEVELS = ['Basic', 'Intermediate', 'Advanced']
 
-    def __init__(self, student_service: StudentService, topic_service: TopicService):
-        self.student_service = student_service
-        self.topic_service = topic_service
+    def __init__(self):
+        pass
 
     def get_by(self, session: Session, **filters):
         return first_or_default(session=session, model=Exercise, **filters)
@@ -120,11 +117,15 @@ class ExerciseService:
     def recommend_exercise(self, user_id: str, topic_name: str) -> ServiceResult[Exercise]:
         try:
             with SessionLocal() as session:
-                user: Student = self.student_service.first_or_default(session=session, user_id=user_id)
+                user: Student | None = session.query(Student).filter_by(user_id=user_id).one_or_none()
                 if not user:
                     return ServiceResult.failure("No se encontró al usuario en el sistema.", HTTPStatus.BAD_REQUEST)
 
-                topic: Topic = self.topic_service.get_by(session=session, name=topic_name)
+                topic: Topic = (
+                    session.query(Topic)
+                    .filter(Topic.name == topic_name)
+                    .one()
+                )
                 if not topic:
                     return ServiceResult.failure(f"El tema '{topic_name}' no existe. Por favor, elige otro.", HTTPStatus.BAD_REQUEST)
 

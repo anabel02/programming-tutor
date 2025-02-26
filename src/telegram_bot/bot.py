@@ -3,10 +3,9 @@ import os
 from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes, ConversationHandler
 from telegram.constants import ParseMode
-from database.database import SessionLocal
-from database.models import Topic, Exercise, Student, Attempt, ExerciseHint
+from database.models import Topic, Exercise, Student, ExerciseHint
 from typing import List
-from services import StudentService, ExerciseService, TopicService, HintService, ServiceResult
+from services import StudentService, ExerciseService, TopicService, HintService, ServiceResult, SubmissionService
 from telegram.helpers import escape_markdown
 from http import HTTPStatus
 from telegram_bot.utils import format_solution
@@ -16,17 +15,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Estados de la conversación de start
-STATE_GET_NAME, STATE_GET_LASTNAME = range(2)
+STATE_GET_NAME, STATE_GET_LASTNAME, AWAITING_CODE = range(3)
 
 
 class TelegramBot:
-    def __init__(self, ai_tutor, llm, student_service: StudentService, exercise_service: ExerciseService,   topic_service: TopicService, hint_service: HintService):
+    def __init__(self, ai_tutor, llm, student_service: StudentService, exercise_service: ExerciseService,   topic_service: TopicService, hint_service: HintService, submission_service: SubmissionService):
         self.ai_tutor = ai_tutor
         self.llm = llm
         self.student_service = student_service
         self.exercise_service = exercise_service
         self.topic_service = topic_service
         self.hint_service = hint_service
+        self.submission_service = submission_service
         self.app = Application.builder().token(self._get_bot_token()).build()
         self._setup_command_handlers()
 
@@ -52,6 +52,13 @@ class TelegramBot:
             },
             fallbacks=[CommandHandler('cancel', self.handle_cancel)],
         )
+        submit_conversation_handler = ConversationHandler(
+            entry_points=[CommandHandler("submit", self.start_submission)],
+            states={
+                AWAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.receive_code)],
+            },
+            fallbacks=[CommandHandler("cancel", self.handle_cancel)],
+        )
         self.app.add_handler(start_conversation_handler)
         self.app.add_handler(CommandHandler("help", self.handle_help))
         self.app.add_handler(CommandHandler("ask", self.handle_user_question))
@@ -60,7 +67,7 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("solution", self.handle_solution_request))
         self.app.add_handler(CommandHandler("topics", self.handle_topics_list))
         self.app.add_handler(CommandHandler("topic", self.handle_topic_description))
-        self.app.add_handler(CommandHandler("submit", self.handle_solution_submission))
+        self.app.add_handler(submit_conversation_handler)
         self.app.add_handler(MessageHandler(filters.COMMAND, self.handle_unknown_command))
 
     async def handle_user_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -119,8 +126,7 @@ class TelegramBot:
             return ConversationHandler.END
 
     async def handle_cancel(self, update: Update, context: CallbackContext):
-        """Cancel user registration."""
-        await update.message.reply_text("Registro cancelado.")
+        await update.message.reply_text("Proceso cancelado.")
         return ConversationHandler.END
 
     async def handle_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -263,38 +269,46 @@ class TelegramBot:
         code = ' '.join(args[1:])
         user_id = str(update.message.from_user.id)
 
-        try:
-            with SessionLocal() as session:
-                exercise: Exercise = self.exercise_service.get_by(session, id=exercise_id)
-                if not exercise:
-                    await update.message.reply_text(f"El ejercicio con número {exercise_id} no existe.")
-                    return
+        result = self.submission_service.submit_code(user_id, exercise_id, code)
 
-                student: Student = self.student_service.first_or_default(session=session, user_id=user_id)
-                if not student:
-                    await update.message.reply_text("El estudiante no está registrado.")
-                    return
-
-                if exercise.id not in {ex.id for ex in student.exercises}:
-                    await update.message.reply_text("Parece que no te he recomendado ese ejercicio.")
-                    return
-
-                new_attempt = Attempt(
-                    student_id=student.id,
-                    exercise_id=exercise_id,
-                    submitted_code=code,
-                )
-
-                session.add(new_attempt)
-                session.commit()
-
-                await update.message.reply_text(f"¡Intento guardado para el ejercicio '{exercise.title}'!")
-
-        except ValueError:
-            await update.message.reply_text("El ID del ejercicio debe ser un número entero.")
-        except Exception as e:
-            logger.error(f"Error al guardar el intento: {e}", exc_info=True)
+        if result.is_success:
+            await update.message.reply_text(f"¡Intento guardado para el ejercicio '{exercise_id}'!")
+        elif result.error_code == HTTPStatus.NOT_FOUND or result.error_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.error_message)
+        else:
+            logger.error(f"Error al obtener la solución: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al guardar el intento :(.")
+
+    async def start_submission(self, update: Update, context: CallbackContext):
+        """Recibe el número del ejercicio desde el comando y solicita el código."""
+        args = context.args
+
+        if not args or not args[0].isdigit():
+            await update.message.reply_text("Por favor, proporciona el número del ejercicio. Ejemplo: /submit 1")
+            return ConversationHandler.END
+
+        exercise_id = args[0]
+        context.user_data["exercise_id"] = int(exercise_id)
+        await update.message.reply_text(f"Ahora introduce el código para el ejercicio '{exercise_id}'.")
+        return AWAITING_CODE
+
+    async def receive_code(self, update: Update, context: CallbackContext):
+        """Recibe el código y lo envía al servicio."""
+        exercise_id = context.user_data.get("exercise_id")
+        user_id = str(update.message.from_user.id)
+        code = update.message.text
+
+        result = self.submission_service.submit_code(user_id, exercise_id, code)
+
+        if result.is_success:
+            await update.message.reply_text(f"¡Intento guardado para el ejercicio '{exercise_id}'!")
+        elif result.error_code in {HTTPStatus.NOT_FOUND, HTTPStatus.BAD_REQUEST}:
+            await update.message.reply_text(result.error_message)
+        else:
+            logger.error(f"Error al guardar la solución: {result.error_message}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al guardar el intento :(.")
+
+        return ConversationHandler.END
 
     async def handle_unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle unknown commands by informing the user."""

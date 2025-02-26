@@ -2,7 +2,7 @@ from rag.utils import get_gemini_llm, get_retriever
 from rag.ai_tutor import AITutor
 from telegram_bot.bot import TelegramBot
 from dotenv import load_dotenv
-from services import StudentService, ExerciseService, TopicService, HintService
+from services import StudentService, ExerciseService, TopicService, HintService, SubmissionService
 
 load_dotenv()
 
@@ -10,8 +10,9 @@ load_dotenv()
 def create_bot():
     student_service = StudentService()
     topic_service = TopicService()
-    exercise_service = ExerciseService(student_service, topic_service)
+    exercise_service = ExerciseService()
     hint_service = HintService()
+    submission_service = SubmissionService()
     llm = get_gemini_llm()
     retriever = get_retriever()
     ai_tutor = AITutor(llm, retriever)
@@ -22,7 +23,8 @@ def create_bot():
         student_service=student_service,
         exercise_service=exercise_service,
         topic_service=topic_service,
-        hint_service=hint_service
+        hint_service=hint_service,
+        submission_service=submission_service
     )
     return bot
 
