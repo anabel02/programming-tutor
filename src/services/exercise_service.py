@@ -112,6 +112,7 @@ class ExerciseService:
         if exercise := self.get_first_unattempted_exercise(session, student.id, topic.id, level):
             student.exercises.append(exercise)
             session.commit()
+            session.refresh(exercise)
             return exercise
 
         return None

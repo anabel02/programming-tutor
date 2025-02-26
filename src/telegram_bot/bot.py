@@ -16,63 +16,61 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Estados de la conversación de start
-GET_NAME, GET_LASTNAME = range(2)
+STATE_GET_NAME, STATE_GET_LASTNAME = range(2)
 
 
 class TelegramBot:
-    def __init__(self, ai_tutor, llm, student_service: StudentService, exercise_service: ExerciseService,    topic_service: TopicService, hint_service: HintService):
+    def __init__(self, ai_tutor, llm, student_service: StudentService, exercise_service: ExerciseService,   topic_service: TopicService, hint_service: HintService):
         self.ai_tutor = ai_tutor
         self.llm = llm
         self.student_service = student_service
         self.exercise_service = exercise_service
         self.topic_service = topic_service
         self.hint_service = hint_service
-        self.app = Application.builder().token(self.get_token()).build()
-        self.setup_handlers()
+        self.app = Application.builder().token(self._get_bot_token()).build()
+        self._setup_command_handlers()
 
     def run(self):
         """Start polling for updates."""
         self.app.run_polling()
 
-    def get_token(self) -> str:
-        """Validate and return the Telegram bot token."""
+    def _get_bot_token(self) -> str:
+        """Retrieve and validate the Telegram bot token."""
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         if not token:
             logger.error("TELEGRAM_BOT_TOKEN environment variable is missing.")
             raise EnvironmentError("TELEGRAM_BOT_TOKEN is not set.")
         return token
 
-    def setup_handlers(self):
-        """Set up command and message handlers."""
-        start_handler = ConversationHandler(
-            entry_points=[CommandHandler('start', self.start)],
+    def _setup_command_handlers(self):
+        """Configure command and message handlers."""
+        start_conversation_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', self.handle_start)],
             states={
-                GET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_name)],
-                GET_LASTNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_lastname)],
+                STATE_GET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_name_input)],
+                STATE_GET_LASTNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_lastname_input)],
             },
-            fallbacks=[CommandHandler('cancel', self.cancel)],
+            fallbacks=[CommandHandler('cancel', self.handle_cancel)],
         )
-        self.app.add_handler(start_handler)
-        self.app.add_handler(CommandHandler("help", self.help_command))
-        self.app.add_handler(CommandHandler("ask", self.handle_message))
-        self.app.add_handler(CommandHandler("exercise", self.exercise))
-        self.app.add_handler(CommandHandler("hint", self.hint_command))
-        self.app.add_handler(CommandHandler("solution", self.solution_command))
-        self.app.add_handler(CommandHandler("topics", self.list_topics))
-        self.app.add_handler(CommandHandler("topic", self.topic_description))
-        self.app.add_handler(CommandHandler("submit", self.submission))
-        self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.echo))
-        self.app.add_handler(MessageHandler(filters.COMMAND, self.unknown))
+        self.app.add_handler(start_conversation_handler)
+        self.app.add_handler(CommandHandler("help", self.handle_help))
+        self.app.add_handler(CommandHandler("ask", self.handle_user_question))
+        self.app.add_handler(CommandHandler("exercise", self.handle_exercise_request))
+        self.app.add_handler(CommandHandler("hint", self.handle_hint_request))
+        self.app.add_handler(CommandHandler("solution", self.handle_solution_request))
+        self.app.add_handler(CommandHandler("topics", self.handle_topics_list))
+        self.app.add_handler(CommandHandler("topic", self.handle_topic_description))
+        self.app.add_handler(CommandHandler("submit", self.handle_solution_submission))
+        self.app.add_handler(MessageHandler(filters.COMMAND, self.handle_unknown_command))
 
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        user_question = update.message.text
-
-        if not user_question or user_question.strip() == "":
+    async def handle_user_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Process a user's question and provide an AI-generated answer."""
+        user_question = update.message.text.strip()
+        if not user_question:
             await update.message.reply_text("Por favor, envía una pregunta válida. La pregunta no puede ser vacía.")
             return
 
         await update.message.reply_text("Pensando... 🤔")
-
         try:
             ai_response = self.ai_tutor.answer_question(user_question)
             answer = ai_response.get("answer", "Lo siento, no encontré una respuesta.")
@@ -80,62 +78,53 @@ class TelegramBot:
         except Exception as e:
             logger.error(e)
 
-    async def start(self, update: Update, context: CallbackContext):
+    async def handle_start(self, update: Update, context: CallbackContext):
+        """Start the user registration process."""
         user_id = str(update.message.from_user.id)
-
         result: ServiceResult[Student] = self.student_service.get_user(user_id=user_id)
+
         if result.is_success:
             user: Student = result.item
-            await update.message.reply_text(
-                f"¡Hola, {user.first_name}! 👋 Bienvenido de nuevo al bot. "
-                "Escribe /help para ver lo que puedo hacer."
-            )
+            await update.message.reply_text(f"¡Hola, {user.first_name}! 👋 Bienvenido de nuevo. Escribe /help para ver qué puedes hacer.")
             return ConversationHandler.END
         elif result.error_code == HTTPStatus.NOT_FOUND:
-            await update.message.reply_text(
-                "¡Hola! 👋 Parece que es la primera vez que usas este bot. "
-                "Por favor, ingresa tu nombre:"
-            )
-            return GET_NAME  # Pasa al estado GET_NAME
+            await update.message.reply_text("¡Hola! 👋 Parece que es la primera vez que usas este bot. Por favor, ingresa tu nombre:")
+            return STATE_GET_NAME
         else:
+            logger.error(f"Error getting user: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al procesar tu solicitud :(.")
             return ConversationHandler.END
 
-    async def get_name(self, update: Update, context: CallbackContext):
-        first_name = update.message.text
+    async def handle_name_input(self, update: Update, context: CallbackContext):
+        """Store the user's first name and request last name."""
+        context.user_data['first_name'] = update.message.text
+        await update.message.reply_text(f"Gracias, {context.user_data['first_name']}. Ahora, ingresa tus apellidos:")
+        return STATE_GET_LASTNAME
 
-        # Guarda el nombre en el contexto de la conversación
-        context.user_data['first_name'] = first_name
-
-        await update.message.reply_text(
-            f"Gracias, {first_name}. Ahora, por favor, ingresa tus apellidos:"
-        )
-        return GET_LASTNAME  # Pasa al estado GET_LASTNAME
-
-    async def get_lastname(self, update: Update, context: CallbackContext):
+    async def handle_lastname_input(self, update: Update, context: CallbackContext):
+        """Complete user registration with last name."""
         user_id = str(update.message.from_user.id)
         chat_id = update.message.chat_id
         last_name = update.message.text
-        first_name = context.user_data['first_name']  # Recupera el nombre del contexto
+        first_name = context.user_data['first_name']
 
         result: ServiceResult[Student] = self.student_service.create_user(user_id, chat_id, first_name, last_name)
         if result.is_success:
             user = result.item
-            await update.message.reply_text(
-                    f"¡Gracias, {user.first_name} {user.last_name}! 🎉 Ahora estás registrado en el sistema. "
-                    "Escribe /help para ver lo que puedo hacer."
-                )
-            return ConversationHandler.END  # Termina la conversación
+            await update.message.reply_text(f"¡Gracias, {user.first_name} {user.last_name}! 🎉 Ahora estás registrado. Escribe /help para ver qué puedes hacer.")
+            return ConversationHandler.END
         else:
-            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
-            await update.message.reply_text("Ocurrió un error al registrarte en el sistema :(.")
-            return ConversationHandler.END  # Termina la conversación en caso de error
+            logger.error(f"Error creating user: {result.error_message}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al registrarte en el sistema :(." )
+            return ConversationHandler.END
 
-    async def cancel(self, update: Update, context: CallbackContext):
+    async def handle_cancel(self, update: Update, context: CallbackContext):
+        """Cancel user registration."""
         await update.message.reply_text("Registro cancelado.")
         return ConversationHandler.END
 
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    async def handle_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Provide a list of available commands."""
         await update.message.reply_text(
             "Estos son los comandos que puedes usar:\n"
             "/start - Inicia la interacción con el bot\n"
@@ -145,10 +134,12 @@ class TelegramBot:
             "/ask [pregunta] - Haz una pregunta al bot\n"
             "/exercise [tema] - Solicita un ejercicio de un tema específico\n"
             "/hint [número del ejercicio] - Solicita una pista para resolver el ejercicio\n"
-            "/solution [número del ejercicio] - Solicita la solución del ejercicio"
+            "/solution [número del ejercicio] - Solicita la solución del ejercicio\n"
+            "/submit [número del ejercicio] [código] - Envía tu solución para ser evaluada y recibir retroalimentación."
         )
 
-    async def list_topics(self, update: Update, context: CallbackContext):
+    async def handle_topics_list(self, update: Update, context: CallbackContext):
+        """Provide a list of available topics."""
         result: ServiceResult[List[Topic]] = self.topic_service.get_all()
 
         if not result.is_success:
@@ -165,7 +156,8 @@ class TelegramBot:
                 f"Estos son los temas disponibles:\n{topics_list}"
             )
 
-    async def topic_description(self, update: Update, context: CallbackContext):
+    async def handle_topic_description(self, update: Update, context: CallbackContext):
+        """Provide a description for a specific topic."""
         args: List[str] = context.args
 
         if not args:
@@ -185,7 +177,8 @@ class TelegramBot:
             logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al obtener la descripción del tema :(.")
 
-    async def exercise(self, update: Update, context: CallbackContext):
+    async def handle_exercise_request(self, update: Update, context: CallbackContext):
+        """Recommend an exercise based on the given topic."""
         user_id = str(update.effective_user.id)
         args: List[str] = context.args
 
@@ -200,7 +193,7 @@ class TelegramBot:
         if result.is_success:
             exercise: Exercise = result.item
             escaped_title = escape_markdown(exercise.title, version=2)
-            formatted_exercise = self.format_solution(exercise.description)
+            formatted_exercise = format_solution(exercise.description)
 
             await update.message.reply_text(
                 f"*{exercise.id}\. {escaped_title}*\n\n{formatted_exercise}",
@@ -214,7 +207,8 @@ class TelegramBot:
             logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba recomendarte un ejercicio :(.")
 
-    async def hint_command(self, update: Update, context: CallbackContext):
+    async def handle_hint_request(self, update: Update, context: CallbackContext):
+        """Provide a hint for a given exercise."""
         args: List[str] = context.args
 
         if not args:
@@ -235,7 +229,8 @@ class TelegramBot:
             logger.error(f"Error recommending hint: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte una pista :(.")
 
-    async def solution_command(self, update: Update, context: CallbackContext):
+    async def handle_solution_request(self, update: Update, context: CallbackContext):
+        """Provide the solution for a given exercise."""
         args = context.args
 
         if not args:
@@ -256,7 +251,8 @@ class TelegramBot:
             logger.error(f"Error al obtener la solución: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba darte la solución :(.")
 
-    async def submission(self, update: Update, context: CallbackContext):
+    async def handle_solution_submission(self, update: Update, context: CallbackContext):
+        """Submit an attempt for an exercise."""
         args: List[str] = context.args
 
         if len(args) < 2:
@@ -300,8 +296,6 @@ class TelegramBot:
             logger.error(f"Error al guardar el intento: {e}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al guardar el intento :(.")
 
-    async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
-
-    async def unknown(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lo siento, no entiendo ese comando. 😕")
+    async def handle_unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle unknown commands by informing the user."""
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lo siento, no entiendo ese comando. 😕. Escribe /help para ver qué puedes hacer.")

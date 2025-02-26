@@ -1,7 +1,7 @@
 from telegram.helpers import escape_markdown
 
 
-def format_solution(self, solution: str) -> str:
+def format_solution(solution: str) -> str:
     parts = solution.split("```")
     formatted_parts = []
 
