@@ -3,70 +3,81 @@ import os
 from telegram import Update
 from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes, ConversationHandler
 from telegram.constants import ParseMode
-from database.database import SessionLocal
-from database.models import Topic, Exercise, ExerciseHint, Student, Attempt
+from database.models import Topic, Exercise, Student, ExerciseHint
 from typing import List
-from services import StudentService, ExerciseService, TopicService, HintService
+from services import StudentService, ExerciseService, TopicService, HintService, ServiceResult, SubmissionService
 from telegram.helpers import escape_markdown
+from http import HTTPStatus
+from telegram_bot.utils import format_solution
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Estados de la conversación de start
-GET_NAME, GET_LASTNAME = range(2)
+STATE_GET_NAME, STATE_GET_LASTNAME, AWAITING_CODE = range(3)
 
 
 class TelegramBot:
-    def __init__(self, ai_tutor, llm, student_service: StudentService, exercise_service: ExerciseService,    topic_service: TopicService, hint_service: HintService):
+    def __init__(self, ai_tutor, llm, student_service: StudentService, exercise_service: ExerciseService,   topic_service: TopicService, hint_service: HintService, submission_service: SubmissionService):
         self.ai_tutor = ai_tutor
         self.llm = llm
         self.student_service = student_service
         self.exercise_service = exercise_service
         self.topic_service = topic_service
         self.hint_service = hint_service
-        self.app = Application.builder().token(self.get_token()).build()
-        self.setup_handlers()
+        self.submission_service = submission_service
+        self.app = Application.builder().token(self._get_bot_token()).build()
+        self._setup_command_handlers()
 
-    def get_token(self) -> str:
-        """Validate and return the Telegram bot token."""
+    def run(self):
+        """Start polling for updates."""
+        self.app.run_polling()
+
+    def _get_bot_token(self) -> str:
+        """Retrieve and validate the Telegram bot token."""
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         if not token:
             logger.error("TELEGRAM_BOT_TOKEN environment variable is missing.")
             raise EnvironmentError("TELEGRAM_BOT_TOKEN is not set.")
         return token
 
-    def setup_handlers(self):
-        """Set up command and message handlers."""
-        start_handler = ConversationHandler(
-            entry_points=[CommandHandler('start', self.start)],
+    def _setup_command_handlers(self):
+        """Configure command and message handlers."""
+        start_conversation_handler = ConversationHandler(
+            entry_points=[CommandHandler('start', self.handle_start)],
             states={
-                GET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_name)],
-                GET_LASTNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.get_lastname)],
+                STATE_GET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_name_input)],
+                STATE_GET_LASTNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_lastname_input)],
             },
-            fallbacks=[CommandHandler('cancel', self.cancel)],
+            fallbacks=[CommandHandler('cancel', self.handle_cancel)],
         )
-        self.app.add_handler(start_handler)
-        self.app.add_handler(CommandHandler("help", self.help_command))
-        self.app.add_handler(CommandHandler("ask", self.handle_message))
-        self.app.add_handler(CommandHandler("exercise", self.exercise))
-        self.app.add_handler(CommandHandler("hint", self.hint_command))
-        self.app.add_handler(CommandHandler("solution", self.solution_command))
-        self.app.add_handler(CommandHandler("topics", self.list_topics))
-        self.app.add_handler(CommandHandler("topic", self.topic_description))
-        self.app.add_handler(CommandHandler("submit", self.submission))
-        self.app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self.echo))
-        self.app.add_handler(MessageHandler(filters.COMMAND, self.unknown))
+        submit_conversation_handler = ConversationHandler(
+            entry_points=[CommandHandler("submit", self.start_submission)],
+            states={
+                AWAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.receive_code)],
+            },
+            fallbacks=[CommandHandler("cancel", self.handle_cancel)],
+        )
+        self.app.add_handler(start_conversation_handler)
+        self.app.add_handler(CommandHandler("help", self.handle_help))
+        self.app.add_handler(CommandHandler("ask", self.handle_user_question))
+        self.app.add_handler(CommandHandler("exercise", self.handle_exercise_request))
+        self.app.add_handler(CommandHandler("hint", self.handle_hint_request))
+        self.app.add_handler(CommandHandler("solution", self.handle_solution_request))
+        self.app.add_handler(CommandHandler("topics", self.handle_topics_list))
+        self.app.add_handler(CommandHandler("topic", self.handle_topic_description))
+        self.app.add_handler(submit_conversation_handler)
+        self.app.add_handler(MessageHandler(filters.COMMAND, self.handle_unknown_command))
 
-    async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        user_question = update.message.text
-
-        if not user_question or user_question.strip() == "":
+    async def handle_user_question(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Process a user's question and provide an AI-generated answer."""
+        user_question = update.message.text.strip()
+        if not user_question:
             await update.message.reply_text("Por favor, envía una pregunta válida. La pregunta no puede ser vacía.")
             return
 
         await update.message.reply_text("Pensando... 🤔")
-
         try:
             ai_response = self.ai_tutor.answer_question(user_question)
             answer = ai_response.get("answer", "Lo siento, no encontré una respuesta.")
@@ -74,98 +85,106 @@ class TelegramBot:
         except Exception as e:
             logger.error(e)
 
-    async def start(self, update: Update, context: CallbackContext):
-        """
-        Maneja el comando /start. Si el usuario no está en la base de datos,
-        solicita su nombre y apellidos.
-        """
-        query = update.message
-        user_id = str(query.from_user.id)
+    async def handle_start(self, update: Update, context: CallbackContext):
+        """Start the user registration process."""
+        user_id = str(update.message.from_user.id)
+        result: ServiceResult[Student] = self.student_service.get_user(user_id=user_id)
 
-        try:
-            with SessionLocal() as session:
-                # Verifica si el usuario ya existe en la base de datos
-                user = self.student_service.first_or_default(session, user_id=user_id)
-                if user:
-                    # Si el usuario existe, saluda
-                    await update.message.reply_text(
-                        f"¡Hola, {user.first_name}! 👋 Bienvenido de nuevo al bot. "
-                        "Escribe /help para ver lo que puedo hacer."
-                    )
-                else:
-                    # Si el usuario no existe, solicita su nombre
-                    await update.message.reply_text(
-                        "¡Hola! 👋 Parece que es la primera vez que usas este bot. "
-                        "Por favor, ingresa tu nombre:"
-                    )
-                    return GET_NAME  # Pasa al estado GET_NAME
-        except Exception as e:
-            logger.error(f"Error al verificar el usuario: {e}")
+        if result.is_success:
+            user: Student = result.item
+            await update.message.reply_text(f"¡Hola, {user.first_name}! 👋 Bienvenido de nuevo. Escribe /help para ver qué puedes hacer.")
+            return ConversationHandler.END
+        elif result.error_code == HTTPStatus.NOT_FOUND:
+            await update.message.reply_text("¡Hola! 👋 Parece que es la primera vez que usas este bot. Por favor, ingresa tu nombre:")
+            return STATE_GET_NAME
+        else:
+            logger.error(f"Error getting user: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al procesar tu solicitud :(.")
+            return ConversationHandler.END
 
-    async def get_name(self, update: Update, context: CallbackContext):
-        """
-        Captura el nombre del usuario y solicita sus apellidos.
-        """
-        first_name = update.message.text
+    async def handle_name_input(self, update: Update, context: CallbackContext):
+        """Store the user's first name and request last name."""
+        context.user_data['first_name'] = update.message.text
+        await update.message.reply_text(f"Gracias, {context.user_data['first_name']}. Ahora, ingresa tus apellidos:")
+        return STATE_GET_LASTNAME
 
-        # Guarda el nombre en el contexto de la conversación
-        context.user_data['first_name'] = first_name
-
-        await update.message.reply_text(
-            f"Gracias, {first_name}. Ahora, por favor, ingresa tus apellidos:"
-        )
-        return GET_LASTNAME  # Pasa al estado GET_LASTNAME
-
-    async def get_lastname(self, update: Update, context: CallbackContext):
-        """
-        Captura los apellidos del usuario y lo registra en la base de datos.
-        """
+    async def handle_lastname_input(self, update: Update, context: CallbackContext):
+        """Complete user registration with last name."""
         user_id = str(update.message.from_user.id)
         chat_id = update.message.chat_id
         last_name = update.message.text
-        first_name = context.user_data['first_name']  # Recupera el nombre del contexto
+        first_name = context.user_data['first_name']
 
-        try:
-            with SessionLocal() as session:
-                # Crea el usuario en la base de datos
-                user = self.student_service.create_user(session, user_id, chat_id, first_name, last_name)
-                await update.message.reply_text(
-                    f"¡Gracias, {user.first_name} {user.last_name}! 🎉 Ahora estás registrado en el sistema. "
-                    "Escribe /help para ver lo que puedo hacer."
-                )
-                return ConversationHandler.END  # Termina la conversación
-        except Exception as e:
-            logger.error(f"Error al registrar el usuario: {e}")
-            await update.message.reply_text("Ocurrió un error al registrarte en el sistema :(.")
-            return ConversationHandler.END  # Termina la conversación en caso de error
+        result: ServiceResult[Student] = self.student_service.create_user(user_id, chat_id, first_name, last_name)
+        if result.is_success:
+            user = result.item
+            await update.message.reply_text(f"¡Gracias, {user.first_name} {user.last_name}! 🎉 Ahora estás registrado. Escribe /help para ver qué puedes hacer.")
+            return ConversationHandler.END
+        else:
+            logger.error(f"Error creating user: {result.error_message}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al registrarte en el sistema :(." )
+            return ConversationHandler.END
 
-    async def cancel(self, update: Update, context: CallbackContext):
-        """
-        Cancela la conversación.
-        """
-        await update.message.reply_text("Registro cancelado.")
+    async def handle_cancel(self, update: Update, context: CallbackContext):
+        await update.message.reply_text("Proceso cancelado.")
         return ConversationHandler.END
 
-    async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Provide help information to the user."""
+    async def handle_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Provide a list of available commands."""
         await update.message.reply_text(
             "Estos son los comandos que puedes usar:\n"
             "/start - Inicia la interacción con el bot\n"
             "/help - Obtén ayuda sobre cómo usar el bot\n"
             "/topics - Lista todos los temas\n"
+            "/topic [tema] - Muestra una descripción del tema\n"
             "/ask [pregunta] - Haz una pregunta al bot\n"
             "/exercise [tema] - Solicita un ejercicio de un tema específico\n"
-            "/hint [número del ejercicio] - Solicita una pista para resolver el ejercicio"
+            "/hint [número del ejercicio] - Solicita una pista para resolver el ejercicio\n"
+            "/solution [número del ejercicio] - Solicita la solución del ejercicio\n"
+            "/submit [número del ejercicio] [código] - Envía tu solución para ser evaluada y recibir retroalimentación."
         )
 
-    async def echo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text=update.message.text)
+    async def handle_topics_list(self, update: Update, context: CallbackContext):
+        """Provide a list of available topics."""
+        result: ServiceResult[List[Topic]] = self.topic_service.get_all()
 
-    async def unknown(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lo siento, no entiendo ese comando. 😕")
+        if not result.is_success:
+            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al obtener la lista de temas :(.")
+            return
 
-    async def exercise(self, update: Update, context: CallbackContext):
+        topics: List[Topic] = result.item
+        if not topics:
+            await update.message.reply_text("No hay temas disponibles en este momento.")
+        else:
+            topics_list = "\n".join([f"- {topic.name}" for topic in topics])
+            await update.message.reply_text(
+                f"Estos son los temas disponibles:\n{topics_list}"
+            )
+
+    async def handle_topic_description(self, update: Update, context: CallbackContext):
+        """Provide a description for a specific topic."""
+        args: List[str] = context.args
+
+        if not args:
+            await update.message.reply_text("Por favor, indica un tema para recomendar ejercicios.")
+            return
+
+        topic_name = ' '.join(args)
+
+        result: ServiceResult[Topic] = self.topic_service.get(name=topic_name)
+
+        if result.is_success:
+            topic: Topic = result.item
+            await update.message.reply_text(topic.description)
+        elif result.error_code == HTTPStatus.NOT_FOUND:
+            await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
+        else:
+            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al obtener la descripción del tema :(.")
+
+    async def handle_exercise_request(self, update: Update, context: CallbackContext):
+        """Recommend an exercise based on the given topic."""
         user_id = str(update.effective_user.id)
         args: List[str] = context.args
 
@@ -175,33 +194,27 @@ class TelegramBot:
 
         topic_name = ' '.join(args)
 
-        try:
-            with SessionLocal() as session:
-                user: Student = self.student_service.first_or_default(session=session, user_id=user_id)
-                if not user:
-                    await update.message.reply_text("No se encontró al usuario en el sistema.")
-                    return
+        result: ServiceResult[Exercise] = self.exercise_service.recommend_exercise(user_id, topic_name)
 
-                topic: Topic = self.topic_service.get_by(session=session, name=topic_name)
-                if not topic:
-                    await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
-                    return
-                exercise: Exercise = self.exercise_service.recommend_exercise(session, user, topic)
-                if exercise:
-                    escaped_title = escape_markdown(exercise.title, version=2)
-                    escaped_description = escape_markdown(exercise.description, version=2)
+        if result.is_success:
+            exercise: Exercise = result.item
+            escaped_title = escape_markdown(exercise.title, version=2)
+            formatted_exercise = format_solution(exercise.description)
 
-                    await update.message.reply_text(
-                        f"Aquí tienes un ejercicio para practicar:\n\n*{exercise.id}\. {escaped_title}*\n\n{escaped_description}",
-                        parse_mode="MarkdownV2"
-                    )
-                else:
-                    await update.message.reply_text("No hay ejercicios disponibles para tu nivel. ¡Buen trabajo!")
-        except Exception as e:
-            logger.error(f"Error recommending exercise: {e}", exc_info=True)
+            await update.message.reply_text(
+                f"*{exercise.id}\. {escaped_title}*\n\n{formatted_exercise}",
+                parse_mode=ParseMode.MARKDOWN_V2
+            )
+        elif result.error_code == HTTPStatus.NOT_FOUND:
+            await update.message.reply_text("No hay ejercicios disponibles para tu nivel. ¡Buen trabajo!")
+        elif result.error_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.error_message)
+        else:
+            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba recomendarte un ejercicio :(.")
 
-    async def hint_command(self, update: Update, context: CallbackContext):
+    async def handle_hint_request(self, update: Update, context: CallbackContext):
+        """Provide a hint for a given exercise."""
         args: List[str] = context.args
 
         if not args:
@@ -209,21 +222,21 @@ class TelegramBot:
             return
 
         exercise_id = args[0]
-
         user_id = str(update.effective_user.id)
 
-        try:
-            with SessionLocal() as session:
-                hint: ExerciseHint = self.hint_service.give_hint(session, user_id, exercise_id)
-                await update.message.reply_text(hint)
-        except Exception as e:
-            logger.error(f"Error recommending exercise: {e}", exc_info=True)
+        result: ServiceResult[ExerciseHint] = self.hint_service.give_hint(user_id, exercise_id)
+
+        if result.is_success:
+            hint: ExerciseHint = result.item
+            await update.message.reply_text(hint.hint_text)
+        elif result.error_code == HTTPStatus.NOT_FOUND or result.error_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.error_message)
+        else:
+            logger.error(f"Error recommending hint: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte una pista :(.")
 
-    async def solution_command(self, update: Update, context: CallbackContext):
-        """
-        Proporciona la solución de un ejercicio, formateando correctamente el código C# y el texto.
-        """
+    async def handle_solution_request(self, update: Update, context: CallbackContext):
+        """Provide the solution for a given exercise."""
         args = context.args
 
         if not args:
@@ -231,133 +244,72 @@ class TelegramBot:
             return
 
         exercise_id = args[0]
+        user_id = str(update.effective_user.id)
 
-        try:
-            with SessionLocal() as session:
-                exercise: Exercise = self.exercise_service.get_by(session, id=exercise_id)
-                if not exercise.solution:
-                    await update.message.reply_text("No tenemos solución para este ejercicio.")
-                    return
+        result: ServiceResult[str] = self.exercise_service.get_solution(user_id, exercise_id)
 
-                formatted_solution = self.format_solution(exercise.solution)
-                await update.message.reply_text(formatted_solution, parse_mode=ParseMode.MARKDOWN_V2)
-        except Exception as e:
-            logger.error(f"Error al obtener la solución: {e}", exc_info=True)
+        if result.is_success:
+            formatted_solution = format_solution(result.item)
+            await update.message.reply_text(formatted_solution, parse_mode=ParseMode.MARKDOWN_V2)
+        elif result.error_code == HTTPStatus.NOT_FOUND or result.error_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.error_message)
+        else:
+            logger.error(f"Error al obtener la solución: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba darte la solución :(.")
 
-    def format_solution(self, solution: str) -> str:
-        """
-        Formatea la solución para que el código C# y el texto se muestren correctamente en MarkdownV2.
-
-        Args:
-            solution (str): La solución del ejercicio, que puede contener código C# y texto.
-
-        Returns:
-            str: La solución formateada en MarkdownV2.
-        """
-        parts = solution.split("```")
-        formatted_parts = []
-
-        for i, part in enumerate(parts):
-            if i % 2 == 0:
-                # Es texto, escapa los caracteres especiales de MarkdownV2
-                formatted_parts.append(escape_markdown(part, version=2))
-            else:
-                # Es código C#, envuélvelo en un bloque de código
-                formatted_parts.append(f"```csharp{part[6:]}```")
-
-        return "".join(formatted_parts)
-
-    async def list_topics(self, update: Update, context: CallbackContext):
-        """List all available topics."""
-        try:
-            with SessionLocal() as session:
-                topics = self.topic_service.get_all(session)
-                if not topics:
-                    await update.message.reply_text("No hay temas disponibles en este momento.")
-                    return
-
-                topics_list = "\n".join([f"- {topic.name}" for topic in topics])
-                await update.message.reply_text(
-                    f"Estos son los temas disponibles:\n{topics_list}"
-                )
-        except Exception as e:
-            logger.error(f"Error fetching topics: {e}", exc_info=True)
-            await update.message.reply_text("Ocurrió un error al obtener la lista de temas :(.")
-
-    async def topic_description(self, update: Update, context: CallbackContext):
-        """Show the description of a given topic"""
-
+    async def handle_solution_submission(self, update: Update, context: CallbackContext):
+        """Submit an attempt for an exercise."""
         args: List[str] = context.args
 
-        if not args:
-            await update.message.reply_text("Por favor, indica un tema para recomendar ejercicios.")
-            return
-
-        topic_name = ' '.join(args)
-
-        try:
-            with SessionLocal() as session:
-                topic: Topic = self.topic_service.get_by(session, name=topic_name)
-                if not topic:
-                    await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
-                    return
-
-                await update.message.reply_text(topic.description)
-        except Exception as e:
-            logger.error(f"Error fetching topics: {e}", exc_info=True)
-            await update.message.reply_text("Ocurrió un error al obtener la descripción del tema :(.")
-
-    async def submission(self, update: Update, context: CallbackContext):
-        args: List[str] = context.args
-
-        # Verifica que se hayan proporcionado los argumentos necesarios
         if len(args) < 2:
-            await update.message.reply_text("Por favor, proporciona el ID del ejercicio y el código. Ejemplo: /submit 1 'Console.WriteLine(\"Hola mundo\")'")
+            await update.message.reply_text("Por favor, proporciona el número del ejercicio y el código.")
             return
 
-        try:
-            # Obtén el ID del ejercicio y el código de los argumentos
-            exercise_id = int(args[0])  # El primer argumento es el ID del ejercicio
-            code = ' '.join(args[1:])  # El resto de los argumentos son el código
+        exercise_id = int(args[0])
+        code = ' '.join(args[1:])
+        user_id = str(update.message.from_user.id)
 
-            # Obtén el ID del estudiante (usuario de Telegram)
-            user_id = str(update.message.from_user.id)
+        result = self.submission_service.submit_code(user_id, exercise_id, code)
 
-            # Crea una sesión de base de datos
-            with SessionLocal() as session:
-                # Verifica si el ejercicio existe
-                exercise: Exercise = self.exercise_service.get_by(session, id=exercise_id)
-                if not exercise:
-                    await update.message.reply_text(f"El ejercicio con ID {exercise_id} no existe.")
-                    return
-
-                # Verifica si el estudiante existe
-                student: Student = self.student_service.first_or_default(session=session, user_id=user_id)
-                if not student:
-                    await update.message.reply_text(f"El estudiante con user_id {user_id} no está registrado.")
-                    return
-
-                # Crea un nuevo Attempt
-                new_attempt = Attempt(
-                    student_id=student.id,
-                    exercise_id=exercise_id,
-                    submitted_code=code,
-                )
-
-                # Guarda el Attempt en la base de datos
-                session.add(new_attempt)
-                session.commit()
-
-                # Confirma al usuario que el intento se ha guardado
-                await update.message.reply_text(f"¡Intento guardado para el ejercicio '{exercise.title}'!")
-
-        except ValueError:
-            await update.message.reply_text("El ID del ejercicio debe ser un número entero.")
-        except Exception as e:
-            logger.error(f"Error al guardar el intento: {e}", exc_info=True)
+        if result.is_success:
+            await update.message.reply_text(f"¡Intento guardado para el ejercicio '{exercise_id}'!")
+        elif result.error_code == HTTPStatus.NOT_FOUND or result.error_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.error_message)
+        else:
+            logger.error(f"Error al obtener la solución: {result.error_message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al guardar el intento :(.")
 
-    def run(self):
-        """Start polling for updates."""
-        self.app.run_polling()
+    async def start_submission(self, update: Update, context: CallbackContext):
+        """Recibe el número del ejercicio desde el comando y solicita el código."""
+        args = context.args
+
+        if not args or not args[0].isdigit():
+            await update.message.reply_text("Por favor, proporciona el número del ejercicio. Ejemplo: /submit 1")
+            return ConversationHandler.END
+
+        exercise_id = args[0]
+        context.user_data["exercise_id"] = int(exercise_id)
+        await update.message.reply_text(f"Ahora introduce el código para el ejercicio '{exercise_id}'.")
+        return AWAITING_CODE
+
+    async def receive_code(self, update: Update, context: CallbackContext):
+        """Recibe el código y lo envía al servicio."""
+        exercise_id = context.user_data.get("exercise_id")
+        user_id = str(update.message.from_user.id)
+        code = update.message.text
+
+        result = self.submission_service.submit_code(user_id, exercise_id, code)
+
+        if result.is_success:
+            await update.message.reply_text(f"¡Intento guardado para el ejercicio '{exercise_id}'!")
+        elif result.error_code in {HTTPStatus.NOT_FOUND, HTTPStatus.BAD_REQUEST}:
+            await update.message.reply_text(result.error_message)
+        else:
+            logger.error(f"Error al guardar la solución: {result.error_message}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al guardar el intento :(.")
+
+        return ConversationHandler.END
+
+    async def handle_unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle unknown commands by informing the user."""
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lo siento, no entiendo ese comando. 😕. Escribe /help para ver qué puedes hacer.")
