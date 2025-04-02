@@ -1,10 +1,11 @@
-from sqlalchemy.orm import Session
-from database.models import Topic
-from database.crud import first_or_default
-from services.service_result import ServiceResult
-from database.database import SessionLocal
-from typing import List
 from http import HTTPStatus
+from typing import List
+
+from sqlalchemy.orm import Session
+
+from database.database import SessionLocal
+from database.models import Topic
+from services.service_result import ServiceResult
 
 
 class TopicService:
@@ -12,7 +13,7 @@ class TopicService:
         pass
 
     def get_by(self, session: Session, **filters):
-        return first_or_default(session=session, model=Topic, **filters)
+        return session.query(Topic).filter_by(**filters).first()
 
     def _get_all(self, session):
         return session.query(Topic).all()
@@ -25,10 +26,10 @@ class TopicService:
         except Exception as e:
             return ServiceResult.failure(f"Database error: {str(e)}")
 
-    def get(self, **filters) -> ServiceResult[List[Topic]]:
+    def get(self, **filters) -> ServiceResult[Topic]:
         try:
             with SessionLocal() as session:
-                topic: Topic = self.get_by(session, **filters)
+                topic: Topic | None = self.get_by(session, **filters)
                 if not topic:
                     return ServiceResult.failure("Topic not found", HTTPStatus.NOT_FOUND)
                 return ServiceResult.success(topic)

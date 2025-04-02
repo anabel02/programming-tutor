@@ -1,9 +1,10 @@
-from sqlalchemy.orm import Session
-from database.models import Student
-from database.crud import first_or_default
-from services.service_result import ServiceResult
-from database.database import SessionLocal
 from http import HTTPStatus
+
+from sqlalchemy.orm import Session
+
+from database.database import SessionLocal
+from database.models import Student
+from services.service_result import ServiceResult
 
 
 class StudentService:
@@ -34,7 +35,7 @@ class StudentService:
             return ServiceResult.failure(f"Database error: {str(e)}")
 
     def first_or_default(self, session: Session, **filters):
-        return first_or_default(session=session, model=Student, **filters)
+        return session.query(Student).filter_by(**filters).first()
 
-    def user_exists(self, session: Session, student_id: int) -> bool:
+    def user_exists(self, session: Session, student_id: str) -> bool:
         return self.first_or_default(session, user_id=student_id) is not None

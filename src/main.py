@@ -17,7 +17,7 @@ def create_bot():
     retriever = get_retriever()
     ai_tutor = AITutor(llm, retriever)
 
-    bot = TelegramBot(
+    telegram_bot = TelegramBot(
         ai_tutor=ai_tutor,
         llm=llm,
         student_service=student_service,
@@ -26,7 +26,7 @@ def create_bot():
         hint_service=hint_service,
         submission_service=submission_service
     )
-    return bot
+    return telegram_bot
 
 
 if __name__ == "__main__":

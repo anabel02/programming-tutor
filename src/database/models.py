@@ -1,9 +1,10 @@
+from datetime import datetime, timezone
+
 from sqlalchemy import (
     Column, Integer, String, Text, DateTime, ForeignKey, Enum, Table
 )
-from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
-from datetime import datetime
+from sqlalchemy.orm import relationship
 
 # Base for all models
 Base = declarative_base()
@@ -18,15 +19,14 @@ student_exercise = Table(
 )
 
 
-# User Model
 class User(Base):
     __tablename__ = 'users'
 
     id = Column(Integer, primary_key=True, unique=True, index=True, nullable=False)
     user_id = Column(String, unique=True, nullable=False)
     chat_id = Column(String, unique=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime, default=datetime.now(timezone.utc), onupdate=datetime.now(timezone.utc), nullable=False)
 
     # Column for inheritance discrimination
     type = Column(String(50), nullable=False)
@@ -38,7 +38,6 @@ class User(Base):
     }
 
 
-# Student Model
 class Student(User):
     __tablename__ = 'students'
 
@@ -63,7 +62,6 @@ class Student(User):
     }
 
 
-# Topic Model
 class Topic(Base):
     __tablename__ = 'topics'
 
@@ -77,7 +75,6 @@ class Topic(Base):
     exercises = relationship("Exercise", back_populates="topic")
 
 
-# Exercise Model
 class Exercise(Base):
     __tablename__ = 'exercises'
 

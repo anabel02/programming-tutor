@@ -1,75 +1,63 @@
+import logging
 from abc import ABC, abstractmethod
-from langchain_community.document_loaders import PyPDFLoader
+from pathlib import Path
+
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-import os
+from langchain_community.document_loaders import PyPDFLoader
 
 
 class CorpusLoader(ABC):
     """
     Abstract base class for a corpus loader.
     """
-    def __init__(self, folder_path):
+    def __init__(self, folder_path: str):
         """
         Initialize with the path to the folder containing the corpus files.
 
         :param folder_path: Path to the folder with corpus files.
         """
-        self.folder_path = folder_path
+        folder = Path(folder_path)
+        print(folder)
+        if not folder.exists() or not folder.is_dir():
+            raise ValueError(f"Invalid folder path: {folder_path}")
+
+        self.folder_path = folder
 
     @abstractmethod
     def load_corpus(self):
         """
         Abstract method to load and process the corpus.
-        :return: Dictionary with filenames as keys and content as values.
         """
         pass
 
 
-class PDFCorpusLoader:
+class PDFCorpusLoader(CorpusLoader):
     def __init__(self, folder_path: str, chunk_size: int = 2000, chunk_overlap: int = 200):
-        self.folder_path = folder_path
-        # Initialize the text splitter with provided chunk size and overlap
+        super().__init__(folder_path)
         self.text_splitter = RecursiveCharacterTextSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
     def load_corpus(self):
         """
-        Loads the corpus of PDFs from the specified folder, splits the text into chunks,
-        and returns them with metadata.
+        Loads PDFs from the specified folder, splits their text into chunks,
+        and returns a list of processed document chunks.
 
         Returns:
-            dict: A dictionary with filenames as keys and corresponding document chunks as values.
+            list: A list containing all chunked documents with metadata.
         """
-        if not os.path.exists(self.folder_path):
-            raise ValueError(f"Invalid folder path: {self.folder_path}")
-
         pdf_corpus = []
-        for filename in os.listdir(self.folder_path):
-            if filename.endswith(".pdf"):
-                file_path = os.path.join(self.folder_path, filename)
-                try:
-                    # Load the PDF file using PyPDFLoader
-                    loader = PyPDFLoader(file_path)
-                    documents = loader.load()
+        pdf_files = list(self.folder_path.glob("*.pdf"))
 
-                    chunked_documents = self.split_text(documents)
+        if not pdf_files:
+            logging.warning(f"No PDF files found in {self.folder_path}")
 
-                    # Store the chunked documents with metadata
-                    pdf_corpus.extend(chunked_documents)
-                except Exception as e:
-                    print(f"Failed to process {filename}: {e}")
+        for pdf_file in pdf_files:
+            try:
+                loader = PyPDFLoader(str(pdf_file))
+                documents = loader.load()
+                chunked_documents = self.text_splitter.split_documents(documents)
+                pdf_corpus.extend(chunked_documents)
+            except Exception as e:
+                logging.error(f"Failed to process {pdf_file.name}: {e}")
+
         return pdf_corpus
 
-    def split_text(self, data):
-        """
-        Splits the text data into smaller chunks using the RecursiveCharacterTextSplitter.
-
-        Args:
-            data (str): The text to split.
-
-        Returns:
-            list[Document]: A list of LangChain Document objects for each chunk.
-        """
-        # Split the document into chunks
-        docs = self.text_splitter.split_documents(data)
-
-        return docs

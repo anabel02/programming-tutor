@@ -25,7 +25,6 @@ class RAG:
 
         self.llm = llm
 
-        # Create the RAG chain
         self.chain = create_stuff_documents_chain(llm, self.prompt)
         self.rag_chain = create_retrieval_chain(retriever, self.chain)
 
