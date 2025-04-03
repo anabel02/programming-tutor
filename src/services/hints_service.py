@@ -1,23 +1,24 @@
 from http import HTTPStatus
 
+from sqlalchemy.orm import Session
+
 from database.database import SessionLocal
 from database.models import Exercise, StudentHint, Student, ExerciseHint
 from services.service_result import ServiceResult
 
 
 class HintService:
-    def __init__(self):
-        pass
+    def __init__(self, db: Session):
+        self.db = db
 
     def give_hint(self, user_id: str, exercise_id: str) -> ServiceResult[ExerciseHint]:
         try:
-            with SessionLocal() as session:
-                exercise: Exercise | None = session.query(Exercise).filter(Exercise.id == exercise_id).one_or_none()
+                exercise: Exercise | None = self.db.query(Exercise).filter(Exercise.id == exercise_id).one_or_none()
 
                 if exercise is None:
                     return ServiceResult.failure("El ejercicio no existe.", HTTPStatus.NOT_FOUND)
 
-                student: Student | None = session.query(Student).filter_by(user_id=user_id).one_or_none()
+                student: Student | None = self.db.query(Student).filter_by(user_id=user_id).one_or_none()
 
                 if student is None:
                     return ServiceResult.failure("El usuario no existe.", HTTPStatus.NOT_FOUND)
@@ -35,7 +36,7 @@ class HintService:
                 # Filtrar pistas que ya se entregaron al usuario
                 given_hints_ids = {
                     uh.hint_id
-                    for uh in session.query(StudentHint).filter_by(student_id=student.id).all()
+                    for uh in self.db.query(StudentHint).filter_by(student_id=student.id).all()
                 }
 
                 available_hints = [hint for hint in hints if hint.id not in given_hints_ids]
@@ -47,9 +48,9 @@ class HintService:
                 hint_to_give = available_hints[0]
 
                 user_hint = StudentHint(student_id=student.id, hint_id=hint_to_give.id)
-                session.add(user_hint)
-                session.commit()
+                self.db.add(user_hint)
+                self.db.commit()
 
                 return ServiceResult.success(hint_to_give)
         except Exception as e:
-            return ServiceResult.failure(f"Database error: {str(e)}")
+            return ServiceResult.failure(f"Error inesperado: {str(e)}")

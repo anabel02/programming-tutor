@@ -11,7 +11,7 @@ from telegram.helpers import escape_markdown
 
 from database.models import Topic, Exercise, Student, ExerciseHint
 from services import StudentService, ExerciseService, TopicService, HintService, ServiceResult, SubmissionService
-from telegram_bot.utils import format_solution
+from telegram_bot.utils import format_solution, ensure_services
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -21,18 +21,22 @@ logger = logging.getLogger(__name__)
 STATE_GET_NAME, STATE_GET_LASTNAME, AWAITING_CODE = range(3)
 
 
+@ensure_services
 class TelegramBot:
-    def __init__(self, ai_tutor, llm, student_service: StudentService, exercise_service: ExerciseService,
-                 topic_service: TopicService, hint_service: HintService, submission_service: SubmissionService):
+    def __init__(self, ai_tutor, llm):
         self.ai_tutor = ai_tutor
         self.llm = llm
-        self.student_service = student_service
-        self.exercise_service = exercise_service
-        self.topic_service = topic_service
-        self.hint_service = hint_service
-        self.submission_service = submission_service
         self.app = Application.builder().token(self._get_bot_token()).build()
         self._setup_command_handlers()
+
+    def _initialize_services(self, session):
+        """ Initializes services with the given database session """
+        self.student_service = StudentService(session)
+        self.exercise_service = ExerciseService(session)
+        self.topic_service = TopicService(session)
+        self.hint_service = HintService(session)
+        self.submission_service = SubmissionService(session)
+        print("Services initialized")
 
     def run(self):
         """Start polling for updates."""
