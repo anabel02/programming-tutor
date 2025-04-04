@@ -3,7 +3,7 @@ from http import HTTPStatus
 from sqlalchemy import func, case, exists
 from sqlalchemy.orm import Session
 
-from database.models import Topic, Student, Exercise, student_exercise
+from database.models import Topic, Student, Exercise, StudentExercise
 from services.service_result import ServiceResult
 
 
@@ -58,8 +58,8 @@ class ExerciseService:
 
     def _get_attempted_exercises_subquery(self, student_id: int):
         return (
-            self.db.query(student_exercise.c.exercise_id)
-            .filter(student_exercise.c.student_id == student_id)
+            self.db.query(StudentExercise.exercise_id)
+            .filter(StudentExercise.student_id == student_id)
             .subquery()
         )
 
@@ -79,11 +79,11 @@ class ExerciseService:
     def _query_highest_level(self, student_id: int, topic_id: int, difficulty_order) -> int:
         return (
             self.db.query(func.max(difficulty_order))
-            .join(student_exercise, student_exercise.c.exercise_id == Exercise.id)
+            .join(StudentExercise, StudentExercise.exercise_id == Exercise.id)
             .filter(
-                student_exercise.c.student_id == student_id,
+                StudentExercise.student_id == student_id,
                 Exercise.topic_id == topic_id,
-                student_exercise.c.status != 'In Progress'
+                StudentExercise.status != 'In Progress'
             )
             .scalar()
         )
@@ -110,7 +110,8 @@ class ExerciseService:
             level = self.DIFFICULTY_LEVELS[index + 1] if index < len(self.DIFFICULTY_LEVELS) else 'Advanced'
 
         if exercise := self.get_first_unattempted_exercise(student.id, topic.id, level):
-            student.exercises.append(exercise)
+            student_exercise = StudentExercise(student_id=student.id, exercise_id=exercise.id)
+            student.exercises.append(student_exercise)
             self.db.commit()
             self.db.refresh(exercise)
             return exercise

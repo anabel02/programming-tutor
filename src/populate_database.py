@@ -4,7 +4,7 @@ from database.database import engine
 import json
 
 # Path to the JSON file
-json_file_path = "data/topics.json"
+json_file_path = "../data/topics.json"
 
 # Load data from JSON
 with open(json_file_path, "r", encoding="utf-8") as file:
