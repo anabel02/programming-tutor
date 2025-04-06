@@ -1,16 +1,5 @@
 # Programming Tutor
 
-## Project Structure
-
-- `data/`: Contains data files such as the database and exercise definitions.
-- `src/`: Contains all source code.
-  - `database/`: Database models and CRUD operations.
-  - `rag/`: Retrieval-Augmented Generation (RAG) related code.
-  - `services`
-  - `telegram_bot/`: Telegram bot implementation.
-- `.env`: Environment variables.
-- `requirements.txt`: Project dependencies.
-
 ## Setup
 
 1. Install dependencies:
