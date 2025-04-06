@@ -1,7 +1,8 @@
 import os
+
+from langchain.schema import Document
 from langchain_chroma import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain.schema import Document
 
 
 class ChromaVectorDatabase:

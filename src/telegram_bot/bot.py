@@ -1,40 +1,57 @@
 import logging
 import os
-from telegram import Update
-from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes, ConversationHandler
-from telegram.constants import ParseMode
-from database.models import Topic, Exercise, Student, ExerciseHint
-from typing import List
-from services import StudentService, ExerciseService, TopicService, HintService, ServiceResult, SubmissionService
-from telegram.helpers import escape_markdown
+from enum import Enum
 from http import HTTPStatus
-from telegram_bot.utils import format_solution
+from typing import List
+
+from telegram import Update
+from telegram.constants import ParseMode
+from telegram.ext import filters, MessageHandler, Application, CommandHandler, CallbackContext, ContextTypes, \
+    ConversationHandler
+from telegram.helpers import escape_markdown
+
+from database.models import Topic, Exercise, Student, ExerciseHint
+from services import StudentService, ExerciseService, TopicService, HintService, ServiceResult, SubmissionService
+from telegram_bot.utils import format_solution, inject_services
+
+
+class RegistrationStates(Enum):
+    GET_NAME = 0
+    GET_LASTNAME = 1
+
+
+class SubmissionStates(Enum):
+    AWAITING_CODE = 0
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Estados de la conversación de start
-STATE_GET_NAME, STATE_GET_LASTNAME, AWAITING_CODE = range(3)
 
-
+@inject_services
 class TelegramBot:
-    def __init__(self, ai_tutor, llm, student_service: StudentService, exercise_service: ExerciseService,   topic_service: TopicService, hint_service: HintService, submission_service: SubmissionService):
+    def __init__(self, ai_tutor, llm):
         self.ai_tutor = ai_tutor
         self.llm = llm
-        self.student_service = student_service
-        self.exercise_service = exercise_service
-        self.topic_service = topic_service
-        self.hint_service = hint_service
-        self.submission_service = submission_service
         self.app = Application.builder().token(self._get_bot_token()).build()
         self._setup_command_handlers()
+
+    def _initialize_services(self, session):
+        """ Initializes services with the given database session """
+        self.student_service = StudentService(session)
+        self.exercise_service = ExerciseService(session)
+        self.topic_service = TopicService(session)
+        self.hint_service = HintService(session)
+        self.submission_service = SubmissionService(session)
+        print("Services initialized")
 
     def run(self):
         """Start polling for updates."""
         self.app.run_polling()
 
-    def _get_bot_token(self) -> str:
+    @staticmethod
+    def _get_bot_token() -> str:
         """Retrieve and validate the Telegram bot token."""
         token = os.getenv("TELEGRAM_BOT_TOKEN")
         if not token:
@@ -47,15 +64,16 @@ class TelegramBot:
         start_conversation_handler = ConversationHandler(
             entry_points=[CommandHandler('start', self.handle_start)],
             states={
-                STATE_GET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_name_input)],
-                STATE_GET_LASTNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_lastname_input)],
+                RegistrationStates.GET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_name_input)],
+                RegistrationStates.GET_LASTNAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_lastname_input)],
             },
             fallbacks=[CommandHandler('cancel', self.handle_cancel)],
         )
         submit_conversation_handler = ConversationHandler(
             entry_points=[CommandHandler("submit", self.start_submission)],
             states={
-                AWAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.receive_code)],
+                SubmissionStates.AWAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.receive_code)],
             },
             fallbacks=[CommandHandler("cancel", self.handle_cancel)],
         )
@@ -83,7 +101,8 @@ class TelegramBot:
             answer = ai_response.get("answer", "Lo siento, no encontré una respuesta.")
             await update.message.reply_text(answer, parse_mode="Markdown")
         except Exception as e:
-            logger.error(e)
+            logger.error(f"Error procesando la pregunta del usuario: {e}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al procesar tu pregunta. Intenta nuevamente más tarde.")
 
     async def handle_start(self, update: Update, context: CallbackContext):
         """Start the user registration process."""
@@ -92,13 +111,15 @@ class TelegramBot:
 
         if result.is_success:
             user: Student = result.item
-            await update.message.reply_text(f"¡Hola, {user.first_name}! 👋 Bienvenido de nuevo. Escribe /help para ver qué puedes hacer.")
+            await update.message.reply_text(
+                f"¡Hola, {user.first_name}! 👋 Bienvenido de nuevo. Escribe /help para ver qué puedes hacer.")
             return ConversationHandler.END
-        elif result.error_code == HTTPStatus.NOT_FOUND:
-            await update.message.reply_text("¡Hola! 👋 Parece que es la primera vez que usas este bot. Por favor, ingresa tu nombre:")
-            return STATE_GET_NAME
+        elif result.status_code == HTTPStatus.NOT_FOUND:
+            await update.message.reply_text(
+                "¡Hola! 👋 Parece que es la primera vez que usas este bot. Por favor, ingresa tu nombre:")
+            return RegistrationStates.GET_NAME
         else:
-            logger.error(f"Error getting user: {result.error_message}", exc_info=True)
+            logger.error(f"Error getting user: {result.message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al procesar tu solicitud :(.")
             return ConversationHandler.END
 
@@ -106,23 +127,24 @@ class TelegramBot:
         """Store the user's first name and request last name."""
         context.user_data['first_name'] = update.message.text
         await update.message.reply_text(f"Gracias, {context.user_data['first_name']}. Ahora, ingresa tus apellidos:")
-        return STATE_GET_LASTNAME
+        return RegistrationStates.GET_LASTNAME
 
     async def handle_lastname_input(self, update: Update, context: CallbackContext):
         """Complete user registration with last name."""
         user_id = str(update.message.from_user.id)
-        chat_id = update.message.chat_id
+        chat_id = str(update.message.chat_id)
         last_name = update.message.text
         first_name = context.user_data['first_name']
 
         result: ServiceResult[Student] = self.student_service.create_user(user_id, chat_id, first_name, last_name)
         if result.is_success:
             user = result.item
-            await update.message.reply_text(f"¡Gracias, {user.first_name} {user.last_name}! 🎉 Ahora estás registrado. Escribe /help para ver qué puedes hacer.")
+            await update.message.reply_text(
+                f"¡Gracias, {user.first_name} {user.last_name}! 🎉 Ahora estás registrado. Escribe /help para ver qué puedes hacer.")
             return ConversationHandler.END
         else:
-            logger.error(f"Error creating user: {result.error_message}", exc_info=True)
-            await update.message.reply_text("Ocurrió un error al registrarte en el sistema :(." )
+            logger.error(f"Error creating user: {result.message}", exc_info=True)
+            await update.message.reply_text("Ocurrió un error al registrarte en el sistema :(.")
             return ConversationHandler.END
 
     async def handle_cancel(self, update: Update, context: CallbackContext):
@@ -149,7 +171,7 @@ class TelegramBot:
         result: ServiceResult[List[Topic]] = self.topic_service.get_all()
 
         if not result.is_success:
-            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
+            logger.error(f"Error recommending exercise: {result.message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al obtener la lista de temas :(.")
             return
 
@@ -158,9 +180,7 @@ class TelegramBot:
             await update.message.reply_text("No hay temas disponibles en este momento.")
         else:
             topics_list = "\n".join([f"- {topic.name}" for topic in topics])
-            await update.message.reply_text(
-                f"Estos son los temas disponibles:\n{topics_list}"
-            )
+            await update.message.reply_text(f"Estos son los temas disponibles:\n{topics_list}")
 
     async def handle_topic_description(self, update: Update, context: CallbackContext):
         """Provide a description for a specific topic."""
@@ -177,10 +197,10 @@ class TelegramBot:
         if result.is_success:
             topic: Topic = result.item
             await update.message.reply_text(topic.description)
-        elif result.error_code == HTTPStatus.NOT_FOUND:
+        elif result.status_code == HTTPStatus.NOT_FOUND:
             await update.message.reply_text(f"El tema '{topic_name}' no existe. Por favor, elige otro.")
         else:
-            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
+            logger.error(f"Error recommending exercise: {result.message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al obtener la descripción del tema :(.")
 
     async def handle_exercise_request(self, update: Update, context: CallbackContext):
@@ -205,12 +225,10 @@ class TelegramBot:
                 f"*{exercise.id}\. {escaped_title}*\n\n{formatted_exercise}",
                 parse_mode=ParseMode.MARKDOWN_V2
             )
-        elif result.error_code == HTTPStatus.NOT_FOUND:
-            await update.message.reply_text("No hay ejercicios disponibles para tu nivel. ¡Buen trabajo!")
-        elif result.error_code == HTTPStatus.BAD_REQUEST:
-            await update.message.reply_text(result.error_message)
+        elif result.status_code == HTTPStatus.NOT_FOUND or result.status_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.message)
         else:
-            logger.error(f"Error recommending exercise: {result.error_message}", exc_info=True)
+            logger.error(f"Error recommending exercise: {result.message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba recomendarte un ejercicio :(.")
 
     async def handle_hint_request(self, update: Update, context: CallbackContext):
@@ -229,10 +247,10 @@ class TelegramBot:
         if result.is_success:
             hint: ExerciseHint = result.item
             await update.message.reply_text(hint.hint_text)
-        elif result.error_code == HTTPStatus.NOT_FOUND or result.error_code == HTTPStatus.BAD_REQUEST:
-            await update.message.reply_text(result.error_message)
+        elif result.status_code == HTTPStatus.NOT_FOUND or result.status_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.message)
         else:
-            logger.error(f"Error recommending hint: {result.error_message}", exc_info=True)
+            logger.error(f"Error recommending hint: {result.message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba sugerirte una pista :(.")
 
     async def handle_solution_request(self, update: Update, context: CallbackContext):
@@ -251,33 +269,11 @@ class TelegramBot:
         if result.is_success:
             formatted_solution = format_solution(result.item)
             await update.message.reply_text(formatted_solution, parse_mode=ParseMode.MARKDOWN_V2)
-        elif result.error_code == HTTPStatus.NOT_FOUND or result.error_code == HTTPStatus.BAD_REQUEST:
-            await update.message.reply_text(result.error_message)
+        elif result.status_code == HTTPStatus.NOT_FOUND or result.status_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.message)
         else:
-            logger.error(f"Error al obtener la solución: {result.error_message}", exc_info=True)
+            logger.error(f"Error al obtener la solución: {result.message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error mientras intentaba darte la solución :(.")
-
-    async def handle_solution_submission(self, update: Update, context: CallbackContext):
-        """Submit an attempt for an exercise."""
-        args: List[str] = context.args
-
-        if len(args) < 2:
-            await update.message.reply_text("Por favor, proporciona el número del ejercicio y el código.")
-            return
-
-        exercise_id = int(args[0])
-        code = ' '.join(args[1:])
-        user_id = str(update.message.from_user.id)
-
-        result = self.submission_service.submit_code(user_id, exercise_id, code)
-
-        if result.is_success:
-            await update.message.reply_text(f"¡Intento guardado para el ejercicio '{exercise_id}'!")
-        elif result.error_code == HTTPStatus.NOT_FOUND or result.error_code == HTTPStatus.BAD_REQUEST:
-            await update.message.reply_text(result.error_message)
-        else:
-            logger.error(f"Error al obtener la solución: {result.error_message}", exc_info=True)
-            await update.message.reply_text("Ocurrió un error al guardar el intento :(.")
 
     async def start_submission(self, update: Update, context: CallbackContext):
         """Recibe el número del ejercicio desde el comando y solicita el código."""
@@ -290,11 +286,11 @@ class TelegramBot:
         exercise_id = args[0]
         context.user_data["exercise_id"] = int(exercise_id)
         await update.message.reply_text(f"Ahora introduce el código para el ejercicio '{exercise_id}'.")
-        return AWAITING_CODE
+        return SubmissionStates.AWAITING_CODE
 
     async def receive_code(self, update: Update, context: CallbackContext):
         """Recibe el código y lo envía al servicio."""
-        exercise_id = context.user_data.get("exercise_id")
+        exercise_id: int = context.user_data.get("exercise_id")
         user_id = str(update.message.from_user.id)
         code = update.message.text
 
@@ -302,14 +298,39 @@ class TelegramBot:
 
         if result.is_success:
             await update.message.reply_text(f"¡Intento guardado para el ejercicio '{exercise_id}'!")
-        elif result.error_code in {HTTPStatus.NOT_FOUND, HTTPStatus.BAD_REQUEST}:
-            await update.message.reply_text(result.error_message)
+        elif result.status_code == HTTPStatus.NOT_FOUND or result.status_code == HTTPStatus.BAD_REQUEST:
+            await update.message.reply_text(result.message)
         else:
-            logger.error(f"Error al guardar la solución: {result.error_message}", exc_info=True)
+            logger.error(f"Error al guardar la solución: {result.message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al guardar el intento :(.")
 
         return ConversationHandler.END
 
     async def handle_unknown_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle unknown commands by informing the user."""
-        await context.bot.send_message(chat_id=update.effective_chat.id, text="Lo siento, no entiendo ese comando. 😕. Escribe /help para ver qué puedes hacer.")
+        await context.bot.send_message(chat_id=update.effective_chat.id,
+                                       text="Lo siento, no entiendo ese comando. 😕. Escribe /help para ver qué puedes hacer.")
+
+    @staticmethod
+    async def _handle_service_result(result: ServiceResult, success_callback, update, error_callback=None,
+                                     default_error="Ocurrió un error :(."):
+        """Helper function to handle service result responses with more specific error handling."""
+
+        if result.is_success:
+            return await success_callback(result.item)
+
+        error_messages = {
+            HTTPStatus.BAD_REQUEST: "La solicitud no es válida. Verifique los datos enviados.",
+            HTTPStatus.UNAUTHORIZED: "No tienes autorización para realizar esta acción.",
+            HTTPStatus.FORBIDDEN: "Acceso denegado.",
+            HTTPStatus.NOT_FOUND: "No se encontró la información solicitada.",
+            HTTPStatus.INTERNAL_SERVER_ERROR: "Error interno del servidor. Inténtalo más tarde."
+        }
+
+        message = error_messages.get(result.status_code, default_error)
+
+        if error_callback:
+            await error_callback(result)
+
+        logger.error(f"Error {result.status_code}: {result.message}", exc_info=True)
+        await update.message.reply_text(message)

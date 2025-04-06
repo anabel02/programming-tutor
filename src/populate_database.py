@@ -4,11 +4,11 @@ from database.database import engine
 import json
 
 # Path to the JSON file
-json_file_path = "data/topics.json"
+json_file_path = "../data/topics.json"
 
 # Load data from JSON
 with open(json_file_path, "r", encoding="utf-8") as file:
-    data = json.load(file)
+    topics_data = json.load(file)
 
 
 # Function to add topics and exercises
@@ -33,7 +33,7 @@ def populate_database(session: Session, data: list):
 
 
 # Populate the database
-with Session(engine) as session:
-    populate_database(session, data)
+with Session(engine) as db_session:
+    populate_database(db_session, topics_data)
 
 print("Database populated successfully.")

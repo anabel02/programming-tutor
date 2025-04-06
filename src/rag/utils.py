@@ -1,18 +1,21 @@
 import os
+
+from dotenv import load_dotenv
+from langchain_google_genai import ChatGoogleGenerativeAI
+
 from rag.corpus_loader import PDFCorpusLoader
 from rag.document_vector_store import ChromaVectorDatabase
-from langchain_google_genai import ChatGoogleGenerativeAI
-from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
 api_key = os.getenv("GEMINI_API_KEY")
-persist_dir = 'data/chroma_db'
+persist_dir = '../data/chroma_db'
+corpus_dir = "../data/corpus"
 
 
 def get_gemini_llm():
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0, api_key=api_key)
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.3)
     return llm
 
 
@@ -22,8 +25,8 @@ def get_retriever():
 
     vector_db = ChromaVectorDatabase(persist_directory=persist_dir, google_api_key=api_key)
 
-    if (add_docs):
-        folder_path = os.path.abspath("data/corpus")  # Convert to absolute path
+    if add_docs:
+        folder_path = os.path.abspath(corpus_dir)
         pdf_loader = PDFCorpusLoader(folder_path, chunk_size=5000)
 
         pdf_corpus = pdf_loader.load_corpus()
