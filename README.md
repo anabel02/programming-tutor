@@ -8,13 +8,13 @@
     ```
 
 2. Set up environment variables in .env:
-    - **GEMINI_API_KEY**:
+    - **GOOGLE_API_KEY**:
         1. Go to the [Google AI Studio](https://aistudio.google.com) website.
         2. Sign in or create an account.
         3. Navigate to the `Get API key` section and generate a new API key.
         4. Copy the API key and add it to your .env file:
             ```plaintext
-            GEMINI_API_KEY=your_gemini_api_key_here
+            GOOGLE_API_KEY=your_google_api_key_here
             ```
     - **TELEGRAM_BOT_TOKEN**:
         1. Open Telegram and search for the `BotFather`.
