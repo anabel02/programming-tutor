@@ -5,7 +5,7 @@ from telegram.helpers import escape_markdown
 from database.database import SessionLocal
 
 
-def ensure_services(cls):
+def inject_services(cls):
     """ Class decorator that initializes services before executing any method """
 
     def ensure_services_before_call(method: Callable):

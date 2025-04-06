@@ -2,7 +2,6 @@ from http import HTTPStatus
 
 from sqlalchemy.orm import Session
 
-from database.database import SessionLocal
 from database.models import Exercise, StudentHint, Student, ExerciseHint
 from services.service_result import ServiceResult
 
@@ -34,10 +33,11 @@ class HintService:
                                              HTTPStatus.BAD_REQUEST)
 
             # Filtrar pistas que ya se entregaron al usuario
-            given_hints_ids = {
-                uh.hint_id
-                for uh in self.db.query(StudentHint).filter_by(student_id=student.id).all()
-            }
+            given_hints_ids = set(
+                self.db.query(StudentHint.hint_id)
+                .filter_by(student_id=student.id)
+                .all()
+            )
 
             available_hints = [hint for hint in hints if hint.id not in given_hints_ids]
 

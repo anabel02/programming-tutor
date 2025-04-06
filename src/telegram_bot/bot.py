@@ -1,5 +1,6 @@
 import logging
 import os
+from enum import Enum
 from http import HTTPStatus
 from typing import List
 
@@ -11,17 +12,24 @@ from telegram.helpers import escape_markdown
 
 from database.models import Topic, Exercise, Student, ExerciseHint
 from services import StudentService, ExerciseService, TopicService, HintService, ServiceResult, SubmissionService
-from telegram_bot.utils import format_solution, ensure_services
+from telegram_bot.utils import format_solution, inject_services
+
+
+class RegistrationStates(Enum):
+    GET_NAME = 0
+    GET_LASTNAME = 1
+
+
+class SubmissionStates(Enum):
+    AWAITING_CODE = 0
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Estados de la conversación de start
-STATE_GET_NAME, STATE_GET_LASTNAME, AWAITING_CODE = range(3)
 
-
-@ensure_services
+@inject_services
 class TelegramBot:
     def __init__(self, ai_tutor, llm):
         self.ai_tutor = ai_tutor
@@ -56,15 +64,16 @@ class TelegramBot:
         start_conversation_handler = ConversationHandler(
             entry_points=[CommandHandler('start', self.handle_start)],
             states={
-                STATE_GET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_name_input)],
-                STATE_GET_LASTNAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_lastname_input)],
+                RegistrationStates.GET_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_name_input)],
+                RegistrationStates.GET_LASTNAME: [
+                    MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_lastname_input)],
             },
             fallbacks=[CommandHandler('cancel', self.handle_cancel)],
         )
         submit_conversation_handler = ConversationHandler(
             entry_points=[CommandHandler("submit", self.start_submission)],
             states={
-                AWAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.receive_code)],
+                SubmissionStates.AWAITING_CODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.receive_code)],
             },
             fallbacks=[CommandHandler("cancel", self.handle_cancel)],
         )
@@ -108,7 +117,7 @@ class TelegramBot:
         elif result.status_code == HTTPStatus.NOT_FOUND:
             await update.message.reply_text(
                 "¡Hola! 👋 Parece que es la primera vez que usas este bot. Por favor, ingresa tu nombre:")
-            return STATE_GET_NAME
+            return RegistrationStates.GET_NAME
         else:
             logger.error(f"Error getting user: {result.message}", exc_info=True)
             await update.message.reply_text("Ocurrió un error al procesar tu solicitud :(.")
@@ -118,7 +127,7 @@ class TelegramBot:
         """Store the user's first name and request last name."""
         context.user_data['first_name'] = update.message.text
         await update.message.reply_text(f"Gracias, {context.user_data['first_name']}. Ahora, ingresa tus apellidos:")
-        return STATE_GET_LASTNAME
+        return RegistrationStates.GET_LASTNAME
 
     async def handle_lastname_input(self, update: Update, context: CallbackContext):
         """Complete user registration with last name."""
@@ -277,7 +286,7 @@ class TelegramBot:
         exercise_id = args[0]
         context.user_data["exercise_id"] = int(exercise_id)
         await update.message.reply_text(f"Ahora introduce el código para el ejercicio '{exercise_id}'.")
-        return AWAITING_CODE
+        return SubmissionStates.AWAITING_CODE
 
     async def receive_code(self, update: Update, context: CallbackContext):
         """Recibe el código y lo envía al servicio."""
